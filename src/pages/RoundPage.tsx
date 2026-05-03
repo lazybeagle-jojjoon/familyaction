@@ -3,6 +3,7 @@ import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import Button from "../components/Button";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
+import { BLUR_IMAGE_ITEMS, type BlurImageAsset } from "../data/blurImageItems";
 import { getRoundInfo } from "../data/rounds";
 import { playBeep, playCorrect, playWrong } from "../lib/audio";
 import { generateRoundContent } from "../lib/claude";
@@ -12,7 +13,7 @@ import { addRoundResult, loadGameState, saveGameState } from "../lib/storage";
 import type { GameState, RoundResult, RoundType, Team } from "../types";
 
 type WordsContent = { words?: string[] };
-type BlurContent = { items?: { name: string; emoji: string }[] };
+type BlurContent = { items?: { id?: string; name: string; emoji?: string; image?: string }[] };
 type ChosungContent = { questions?: { chosung: string; answers: string[] }[] };
 type EmojiContent = { questions?: { emoji: string; answers: string[]; category: string }[] };
 type LieContent = { questions?: { fact: string; isTrue: boolean; explanation: string }[] };
@@ -30,6 +31,48 @@ const roundTypes: RoundType[] = [
 
 function ensureList<T>(items: T[] | undefined, min = 1): T[] {
   return Array.isArray(items) && items.length >= min ? items : [];
+}
+
+function normalizeName(value: string) {
+  return value.replace(/\s+/g, "").toLowerCase();
+}
+
+function shuffle<T>(items: T[]) {
+  return [...items].sort(() => Math.random() - 0.5);
+}
+
+function findBlurAsset(item: { id?: string; name: string; image?: string; emoji?: string }) {
+  if (item.image) return item as BlurImageAsset;
+
+  const requested = normalizeName(item.name);
+  return BLUR_IMAGE_ITEMS.find((asset) => {
+    const names = [asset.id, asset.name, ...(asset.aliases ?? [])];
+    return names.some((name) => normalizeName(name) === requested);
+  });
+}
+
+function selectBlurItems(content: unknown) {
+  const requestedItems = ensureList((content as BlurContent).items, 1);
+  const selected: BlurImageAsset[] = [];
+  const selectedIds = new Set<string>();
+
+  for (const requestedItem of requestedItems) {
+    const asset = findBlurAsset(requestedItem);
+    if (asset && !selectedIds.has(asset.id)) {
+      selected.push(asset);
+      selectedIds.add(asset.id);
+    }
+  }
+
+  for (const asset of shuffle(BLUR_IMAGE_ITEMS)) {
+    if (selected.length >= 8) break;
+    if (!selectedIds.has(asset.id)) {
+      selected.push(asset);
+      selectedIds.add(asset.id);
+    }
+  }
+
+  return selected.slice(0, 8);
 }
 
 function Countdown({ seconds, urgentAt = 5 }: { seconds: number; urgentAt?: number }) {
@@ -257,7 +300,7 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
 }
 
 function BlurImageRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const items = ensureList((content as BlurContent).items, 4);
+  const items = useMemo(() => selectBlurItems(content), [content]);
   const blurValues = [30, 22, 14, 6, 0];
   const [index, setIndex] = useState(0);
   const [stage, setStage] = useState(0);
@@ -265,7 +308,8 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
   const [revealed, setRevealed] = useState(false);
   const item = items[index % items.length];
   const team = game.teams[index % game.teams.length];
-  const done = index >= Math.min(8, items.length);
+  const questionCount = Math.min(8, items.length);
+  const done = index >= questionCount;
 
   useEffect(() => {
     if (done || revealed || stage >= blurValues.length - 1) return;
@@ -316,14 +360,15 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
       <div className="flex items-center justify-center">
         <TeamPill team={team} active />
       </div>
-      <p className="text-xl font-black">{index + 1} / {Math.min(8, items.length)} 문제</p>
+      <p className="text-xl font-black">{index + 1} / {questionCount} 문제</p>
       <div className="rounded-3xl border-4 border-[#171721] bg-white p-6">
-        <div
-          className="select-none text-[8rem] leading-none transition-all duration-700 sm:text-[12rem]"
+        <img
+          src={item.image}
+          alt=""
+          draggable={false}
+          className="mx-auto h-48 w-48 select-none object-contain transition-all duration-700 sm:h-72 sm:w-72"
           style={{ filter: `blur(${blurValues[stage]}px)` }}
-        >
-          {item.emoji}
-        </div>
+        />
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <Button tone="green" onClick={markCorrect} disabled={revealed}>

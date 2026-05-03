@@ -1,3 +1,4 @@
+import { BLUR_IMAGE_ITEMS } from "./blurImageItems";
 import type { RoundType } from "../types";
 
 export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
@@ -26,16 +27,7 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
     ],
   },
   blur_image: {
-    items: [
-      { name: "코끼리", emoji: "🐘" },
-      { name: "피자", emoji: "🍕" },
-      { name: "강아지", emoji: "🐶" },
-      { name: "수박", emoji: "🍉" },
-      { name: "축구공", emoji: "⚽" },
-      { name: "문어", emoji: "🐙" },
-      { name: "햄버거", emoji: "🍔" },
-      { name: "공룡", emoji: "🦖" },
-    ],
+    items: BLUR_IMAGE_ITEMS.slice(0, 8),
   },
   chosung_quiz: {
     questions: [

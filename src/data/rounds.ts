@@ -1,4 +1,5 @@
 import type { RoundInfo, RoundType } from "../types";
+import { blurImageCandidateText } from "./blurImageItems";
 
 export const ROUND_INFOS: RoundInfo[] = [
   {
@@ -14,10 +15,10 @@ export const ROUND_INFOS: RoundInfo[] = [
     type: "blur_image",
     icon: "🌫️",
     title: "흐릿한 이미지",
-    description: "점점 선명해지는 이모지를 빨리 맞혀요",
+    description: "점점 선명해지는 배경 없는 그림을 빨리 맞혀요",
     tag: "온라인",
     prompt:
-      '초등학생이 알 만한 사물/동물/음식 8개를 JSON으로. 형식: {"items": [{"name": "코끼리", "emoji": "🐘"}, ...]}',
+      `초등학생이 맞히기 좋은 흐릿한 이미지 퀴즈용 정답 8개를 아래 후보 목록에서만 골라 JSON으로 줘. 음식/동물/물건/놀이가 섞이게 하고, 너무 비슷한 것은 같이 고르지 마. 후보: ${blurImageCandidateText}. 형식: {"items": [{"name": "코끼리"}, {"name": "피자"}]}`,
   },
   {
     type: "chosung_quiz",

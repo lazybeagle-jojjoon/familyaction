@@ -57,3 +57,10 @@ React Router 새로고침을 위해 `vercel.json`에 SPA rewrite가 포함되어
 - 고요 속의 외침
 - 몸으로 말해요
 - 수영장 보물찾기
+
+## 이미지 자산
+
+`public/blur-items`의 배경 없는 3D PNG 자산은 Microsoft Fluent Emoji를 사용합니다.
+
+- Source: https://github.com/microsoft/fluentui-emoji
+- License: MIT
