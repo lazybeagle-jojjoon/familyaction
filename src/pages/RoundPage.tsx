@@ -21,6 +21,8 @@ type ChosungContent = { questions?: ChosungQuestion[] };
 type EmojiContent = { questions?: { emoji: string; answers: string[]; category: string }[] };
 type LieContent = { questions?: LieDetectorQuestion[] };
 
+const SPEED_QUIZ_SECONDS = 180;
+
 const roundTypes: RoundType[] = [
   "speed_quiz",
   "blur_image",
@@ -84,6 +86,11 @@ function selectLieQuestions(content: unknown) {
   return shuffle(source).slice(0, 10);
 }
 
+function selectSpeedWords(content: unknown) {
+  const words = ensureList((content as WordsContent).words, 5);
+  return shuffle(words);
+}
+
 function selectChosungQuestions(content: unknown) {
   const generated = ensureList((content as ChosungContent).questions, 1);
   const fallback = ensureList((FALLBACK_CONTENT.chosung_quiz as ChosungContent).questions, 1);
@@ -105,6 +112,14 @@ function selectChosungQuestions(content: unknown) {
   return selected;
 }
 
+function formatCountdown(seconds: number) {
+  if (seconds < 60) return String(seconds);
+
+  const minutes = Math.floor(seconds / 60);
+  const rest = String(seconds % 60).padStart(2, "0");
+  return `${minutes}:${rest}`;
+}
+
 function Countdown({ seconds, urgentAt = 5 }: { seconds: number; urgentAt?: number }) {
   return (
     <div
@@ -112,7 +127,7 @@ function Countdown({ seconds, urgentAt = 5 }: { seconds: number; urgentAt?: numb
         seconds <= urgentAt ? "animate-pulse-red" : ""
       }`}
     >
-      {seconds}
+      {formatCountdown(seconds)}
     </div>
   );
 }
@@ -208,15 +223,20 @@ function TeamPill({ team, active }: { team: Team; active?: boolean }) {
 }
 
 function SpeedQuizRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const words = ensureList((content as WordsContent).words, 5);
+  const words = useMemo(() => selectSpeedWords(content), [content]);
   const teams = game.teams;
+  const wordDecks = useMemo(
+    () => Object.fromEntries(teams.map((team) => [team.id, shuffle(words)])),
+    [teams, words],
+  );
   const [teamIndex, setTeamIndex] = useState(0);
   const [phase, setPhase] = useState<"ready" | "playing" | "done">("ready");
   const [wordIndex, setWordIndex] = useState(0);
-  const [seconds, setSeconds] = useState(30);
+  const [seconds, setSeconds] = useState(SPEED_QUIZ_SECONDS);
   const [correct, setCorrect] = useState(0);
   const [rawScores, setRawScores] = useState<Record<string, number>>({});
   const currentTeam = teams[teamIndex];
+  const currentWords = wordDecks[currentTeam.id] ?? words;
 
   useEffect(() => {
     if (phase !== "playing") return;
@@ -230,9 +250,9 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
     return () => window.clearTimeout(timer);
   }, [correct, currentTeam.id, phase, seconds]);
 
-  const nextWord = () => setWordIndex((index) => (index + 1) % words.length);
+  const nextWord = () => setWordIndex((index) => (index + 1) % currentWords.length);
   const start = () => {
-    setSeconds(30);
+    setSeconds(SPEED_QUIZ_SECONDS);
     setCorrect(0);
     setWordIndex(0);
     setPhase("playing");
@@ -288,16 +308,18 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
       {phase === "ready" ? (
         <>
           <p className="rounded-xl bg-[#F6FBFF] p-4 text-lg font-bold">
-            설명하는 사람만 화면을 보고, 나머지는 정답을 외쳐요. 30초 동안 맞힌 개수를 셉니다.
+            설명하는 사람만 화면을 보고, 나머지는 정답을 외쳐요. 3분 동안 맞힌 개수를 셉니다. 팀마다 단어 순서는 새로 섞입니다.
           </p>
           <Button tone="red" className="text-2xl" onClick={start}>
-            30초 시작
+            3분 시작
           </Button>
         </>
       ) : phase === "playing" ? (
         <>
           <Countdown seconds={seconds} />
-          <div className="rounded-2xl bg-[#FFE66D] p-6 text-5xl font-black sm:text-7xl">{words[wordIndex]}</div>
+          <div className="rounded-2xl bg-[#FFE66D] p-6 text-5xl font-black sm:text-7xl">
+            {currentWords[wordIndex % currentWords.length]}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <Button
               tone="green"
