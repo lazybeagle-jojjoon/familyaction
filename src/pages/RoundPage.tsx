@@ -402,6 +402,7 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
   const [stage, setStage] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
+  const [scored, setScored] = useState(false);
   const item = items[index % items.length];
   const team = game.teams[index % game.teams.length];
   const questionCount = Math.min(8, items.length);
@@ -414,9 +415,12 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
   }, [done, revealed, stage]);
 
   const markCorrect = () => {
+    if (scored) return;
+
     const points = Math.max(0, (blurValues.length - stage - 1) * 5);
     setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
     setRevealed(true);
+    setScored(true);
     playCorrect();
     correctConfetti();
   };
@@ -424,6 +428,7 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
     setIndex((value) => value + 1);
     setStage(0);
     setRevealed(false);
+    setScored(false);
   };
 
   if (done) {
@@ -467,10 +472,10 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
         />
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
-        <Button tone="green" onClick={markCorrect} disabled={revealed}>
-          맞춤 +{Math.max(0, (blurValues.length - stage - 1) * 5)}점
+        <Button tone="green" onClick={markCorrect} disabled={scored}>
+          {scored ? "점수 반영 완료" : `맞춤 +${Math.max(0, (blurValues.length - stage - 1) * 5)}점`}
         </Button>
-        <Button tone="yellow" onClick={() => setRevealed(true)}>
+        <Button tone="yellow" onClick={() => setRevealed(true)} disabled={revealed}>
           정답 보기
         </Button>
         <Button tone="blue" onClick={next}>
@@ -478,6 +483,11 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
         </Button>
       </div>
       {revealed && <p className="rounded-xl bg-[#FFF3BF] p-4 text-3xl font-black">정답: {item.name}</p>}
+      {revealed && !scored && (
+        <p className="rounded-xl bg-white p-3 font-black text-[#4A4A5E]">
+          정답을 확인한 뒤에도 맞힌 처리할 수 있어요. 못 맞혔으면 다음 문제로 넘어가면 0점입니다.
+        </p>
+      )}
     </section>
   );
 }
