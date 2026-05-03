@@ -23,6 +23,8 @@ type EmojiContent = { questions?: EmojiQuizQuestion[] };
 type LieContent = { questions?: LieDetectorQuestion[] };
 
 const SPEED_QUIZ_SECONDS = 180;
+const BLUR_HISTORY_KEY = "poolvilla_blur_recent_ids";
+const BLUR_HISTORY_LIMIT = 80;
 
 const roundTypes: RoundType[] = [
   "speed_quiz",
@@ -57,25 +59,57 @@ function findBlurAsset(item: { id?: string; name: string; image?: string; emoji?
   });
 }
 
+function loadBlurHistory() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(BLUR_HISTORY_KEY) ?? "[]");
+    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberBlurItems(items: BlurImageAsset[]) {
+  const currentIds = items.map((item) => item.id);
+  const previousIds = loadBlurHistory().filter((id) => !currentIds.includes(id));
+  localStorage.setItem(BLUR_HISTORY_KEY, JSON.stringify([...currentIds, ...previousIds].slice(0, BLUR_HISTORY_LIMIT)));
+}
+
 function selectBlurItems(content: unknown) {
   const requestedItems = ensureList((content as BlurContent).items, 1);
   const selected: BlurImageAsset[] = [];
   const selectedIds = new Set<string>();
+  const recentIds = new Set(loadBlurHistory());
 
-  for (const requestedItem of requestedItems) {
+  const addItem = (asset: BlurImageAsset) => {
+    if (selected.length >= 8 || selectedIds.has(asset.id)) return;
+    selected.push(asset);
+    selectedIds.add(asset.id);
+  };
+
+  const generatedItems: BlurImageAsset[] = [];
+  const generatedIds = new Set<string>();
+  for (const requestedItem of shuffle(requestedItems)) {
     const asset = findBlurAsset(requestedItem);
-    if (asset && !selectedIds.has(asset.id)) {
-      selected.push(asset);
-      selectedIds.add(asset.id);
+    if (asset && !generatedIds.has(asset.id)) {
+      generatedItems.push(asset);
+      generatedIds.add(asset.id);
     }
   }
 
+  for (const asset of generatedItems.filter((item) => !recentIds.has(item.id)).slice(0, 3)) {
+    addItem(asset);
+  }
+
+  for (const asset of shuffle(BLUR_IMAGE_ITEMS).filter((item) => !recentIds.has(item.id))) {
+    addItem(asset);
+  }
+
+  for (const asset of generatedItems) {
+    addItem(asset);
+  }
+
   for (const asset of shuffle(BLUR_IMAGE_ITEMS)) {
-    if (selected.length >= 8) break;
-    if (!selectedIds.has(asset.id)) {
-      selected.push(asset);
-      selectedIds.add(asset.id);
-    }
+    addItem(asset);
   }
 
   return selected.slice(0, 8);
@@ -407,6 +441,10 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
   const team = game.teams[index % game.teams.length];
   const questionCount = Math.min(8, items.length);
   const done = index >= questionCount;
+
+  useEffect(() => {
+    rememberBlurItems(items);
+  }, [items]);
 
   useEffect(() => {
     if (done || revealed || stage >= blurValues.length - 1) return;
