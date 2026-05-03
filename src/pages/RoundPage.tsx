@@ -667,10 +667,12 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
 
 function SilentShoutRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
   const words = ensureList((content as WordsContent).words, 5);
+  const [wordsPerTeam, setWordsPerTeam] = useState(5);
   const [index, setIndex] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showWord, setShowWord] = useState(false);
-  const done = index >= Math.min(15, words.length);
+  const totalQuestions = game.teams.length * wordsPerTeam;
+  const done = index >= totalQuestions;
   const team = game.teams[index % game.teams.length];
 
   if (done) {
@@ -689,7 +691,7 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
             roundType: type,
             playedAt: new Date().toISOString(),
             teamScores: scores,
-            note: "정답 1개당 5점",
+            note: `팀당 ${wordsPerTeam}개 · 정답 1개당 5점`,
           }}
         >
           점수 입력 확인
@@ -701,6 +703,27 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
   return (
     <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
       <TeamPill team={team} active />
+      <div className="rounded-xl bg-white p-4">
+        <div className="mb-3 flex items-center justify-between gap-3 text-left font-black">
+          <span>팀당 단어 수</span>
+          <span className="rounded-full bg-[#FFE66D] px-3 py-1 text-sm">
+            총 {totalQuestions}문제
+          </span>
+        </div>
+        <div className="grid grid-cols-4 gap-2">
+          {[3, 5, 7, 10].map((count) => (
+            <Button
+              key={count}
+              tone={wordsPerTeam === count ? "yellow" : "white"}
+              className="min-h-[60px]"
+              disabled={index > 0}
+              onClick={() => setWordsPerTeam(count)}
+            >
+              {count}개
+            </Button>
+          ))}
+        </div>
+      </div>
       <div className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         헤드폰이나 음악으로 주변 소리를 막고, 첫 번째 사람에게만 단어를 보여주세요. 마지막 사람이 맞히면 +5점입니다.
       </div>
