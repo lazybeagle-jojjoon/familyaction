@@ -885,6 +885,7 @@ export default function RoundPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [usedFallback, setUsedFallback] = useState(false);
+  const [modelUsed, setModelUsed] = useState("");
   const valid = roundTypes.includes(roundType);
 
   const round = useMemo(() => (valid ? getRoundInfo(roundType) : undefined), [roundType, valid]);
@@ -894,11 +895,16 @@ export default function RoundPage() {
     if (!valid) return;
 
     setLoading(true);
+    setContent(null);
+    setUsedFallback(false);
+    setError("");
+    setModelUsed("");
     generateRoundContent(roundType).then((result) => {
       if (!mounted) return;
       setContent(result.data);
       setUsedFallback(result.usedFallback);
       setError(result.error);
+      setModelUsed(result.model);
       setLoading(false);
     });
 
@@ -936,7 +942,12 @@ export default function RoundPage() {
       <RoundHeader game={game} type={roundType} />
       {usedFallback && !loading && (
         <p className="mt-5 rounded-xl border-3 border-[#171721] bg-[#FFE3E3] p-3 text-center font-black text-[#C92A2A]">
-          Claude 호출 실패로 백업 문제를 사용 중입니다. {error}
+          ⚠️ Claude 호출 실패로 백업 문제를 사용 중입니다. {error}
+        </p>
+      )}
+      {!usedFallback && !loading && round.prompt && (
+        <p className="mt-5 rounded-xl border-3 border-[#171721] bg-[#D3F9D8] p-3 text-center font-black text-[#2B8A3E]">
+          ✅ Claude가 새 문제를 생성했습니다. {modelUsed && `사용 모델: ${modelUsed}`}
         </p>
       )}
       {body}

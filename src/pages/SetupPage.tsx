@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import PageShell from "../components/PageShell";
+import { testClaudeConnection } from "../lib/claude";
 import { createGameState, loadApiKey, saveApiKey, saveGameState } from "../lib/storage";
 import type { Team, TeamColor } from "../types";
 
@@ -25,6 +26,10 @@ export default function SetupPage() {
   const [members, setMembers] = useState(["", "", ""]);
   const [showHelp, setShowHelp] = useState(false);
   const [error, setError] = useState("");
+  const [apiTest, setApiTest] = useState<{
+    status: "idle" | "testing" | "success" | "error";
+    message: string;
+  }>({ status: "idle", message: "" });
 
   const teams = useMemo<Team[]>(
     () =>
@@ -52,6 +57,28 @@ export default function SetupPage() {
     navigate("/lobby");
   };
 
+  const checkApiKey = async () => {
+    if (!apiKey.trim()) {
+      setApiTest({ status: "error", message: "API 키를 먼저 입력해주세요." });
+      return;
+    }
+
+    setApiTest({ status: "testing", message: "Claude 연결을 확인하는 중입니다..." });
+    try {
+      const model = await testClaudeConnection(apiKey);
+      saveApiKey(apiKey);
+      setApiTest({
+        status: "success",
+        message: `Claude 연결 성공! 사용 모델: ${model}`,
+      });
+    } catch (testError) {
+      setApiTest({
+        status: "error",
+        message: testError instanceof Error ? testError.message : "Claude 연결에 실패했습니다.",
+      });
+    }
+  };
+
   return (
     <PageShell>
       <div className="mb-5 flex items-center justify-between gap-3">
@@ -73,11 +100,41 @@ export default function SetupPage() {
             <input
               type="password"
               value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
+              onChange={(event) => {
+                setApiKey(event.target.value);
+                setApiTest({ status: "idle", message: "" });
+              }}
               placeholder="sk-ant-..."
               className="min-h-[60px] rounded-xl border-3 border-[#171721] bg-white px-4 text-base font-bold outline-none focus:ring-4 focus:ring-[#4ECDC4]"
             />
           </label>
+
+          <div className="grid gap-3 rounded-xl border-3 border-[#171721] bg-white p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-lg font-black">Claude 연결 테스트</p>
+                <p className="text-sm font-bold text-[#4A4A5E]">
+                  게임 시작 전에 API 키가 실제로 작동하는지 확인합니다.
+                </p>
+              </div>
+              <Button tone="blue" onClick={checkApiKey} disabled={apiTest.status === "testing"}>
+                {apiTest.status === "testing" ? "확인 중..." : "API 테스트"}
+              </Button>
+            </div>
+            {apiTest.message && (
+              <p
+                className={`rounded-xl p-3 text-sm font-black ${
+                  apiTest.status === "success"
+                    ? "bg-[#D3F9D8] text-[#2B8A3E]"
+                    : apiTest.status === "testing"
+                      ? "bg-[#F6FBFF] text-[#1864AB]"
+                      : "bg-[#FFE3E3] text-[#C92A2A]"
+                }`}
+              >
+                {apiTest.message}
+              </p>
+            )}
+          </div>
 
           <button
             type="button"
