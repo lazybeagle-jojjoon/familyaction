@@ -25,6 +25,16 @@ type LieContent = { questions?: LieDetectorQuestion[] };
 const SPEED_QUIZ_SECONDS = 180;
 const BLUR_HISTORY_KEY = "poolvilla_blur_recent_ids";
 const BLUR_HISTORY_LIMIT = 80;
+const SPEED_HISTORY_KEY = "poolvilla_speed_recent_words";
+const WORD_HISTORY_LIMIT = 120;
+const CHOSUNG_HISTORY_KEY = "poolvilla_chosung_recent_answers";
+const CHOSUNG_HISTORY_LIMIT = 60;
+const EMOJI_HISTORY_KEY = "poolvilla_emoji_recent_answers";
+const EMOJI_HISTORY_LIMIT = 40;
+const LIE_HISTORY_KEY = "poolvilla_lie_recent_facts";
+const LIE_HISTORY_LIMIT = 80;
+const SILENT_HISTORY_KEY = "poolvilla_silent_recent_words";
+const CHARADES_HISTORY_KEY = "poolvilla_charades_recent_words";
 
 const roundTypes: RoundType[] = [
   "speed_quiz",
@@ -45,8 +55,82 @@ function normalizeName(value: string) {
   return value.replace(/\s+/g, "").toLowerCase();
 }
 
+function randomIndex(max: number) {
+  if (max <= 1) return 0;
+
+  const cryptoApi = globalThis.crypto;
+  if (cryptoApi?.getRandomValues) {
+    const values = new Uint32Array(1);
+    cryptoApi.getRandomValues(values);
+    return values[0] % max;
+  }
+
+  return Math.floor(Math.random() * max);
+}
+
 function shuffle<T>(items: T[]) {
-  return [...items].sort(() => Math.random() - 0.5);
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomIndex(index + 1);
+    [result[index], result[swapIndex]] = [result[swapIndex], result[index]];
+  }
+  return result;
+}
+
+function uniqueStrings(items: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const item of items) {
+    if (typeof item !== "string") continue;
+
+    const clean = item.trim();
+    const key = normalizeName(clean);
+    if (!clean || seen.has(key)) continue;
+
+    result.push(clean);
+    seen.add(key);
+  }
+
+  return result;
+}
+
+function loadRecentIds(key: string) {
+  try {
+    const ids = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return Array.isArray(ids) ? uniqueStrings(ids.filter((id): id is string => typeof id === "string")).map(normalizeName) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberRecentIds(key: string, ids: string[], limit: number) {
+  const currentIds = uniqueStrings(ids).map(normalizeName);
+  const previousIds = loadRecentIds(key).filter((id) => !currentIds.includes(id));
+  localStorage.setItem(key, JSON.stringify([...currentIds, ...previousIds].slice(0, limit)));
+}
+
+function preferFresh<T>(items: T[], key: string, getId: (item: T) => string) {
+  const recentIds = new Set(loadRecentIds(key));
+  const fresh: T[] = [];
+  const recent: T[] = [];
+
+  for (const item of items) {
+    if (recentIds.has(getId(item))) {
+      recent.push(item);
+    } else {
+      fresh.push(item);
+    }
+  }
+
+  return [...shuffle(fresh), ...shuffle(recent)];
+}
+
+function selectWordItems(content: unknown, fallbackType: RoundType, historyKey: string) {
+  const generated = uniqueStrings(ensureList((content as WordsContent).words, 1));
+  const fallback = uniqueStrings(ensureList((FALLBACK_CONTENT[fallbackType] as WordsContent).words, 1));
+  const source = generated.length >= 5 ? generated : uniqueStrings([...generated, ...fallback]);
+  return preferFresh(source.length ? source : fallback, historyKey, normalizeName);
 }
 
 function findBlurAsset(item: { id?: string; name: string; image?: string; emoji?: string }) {
@@ -60,18 +144,11 @@ function findBlurAsset(item: { id?: string; name: string; image?: string; emoji?
 }
 
 function loadBlurHistory() {
-  try {
-    const ids = JSON.parse(localStorage.getItem(BLUR_HISTORY_KEY) ?? "[]");
-    return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
-  } catch {
-    return [];
-  }
+  return loadRecentIds(BLUR_HISTORY_KEY);
 }
 
 function rememberBlurItems(items: BlurImageAsset[]) {
-  const currentIds = items.map((item) => item.id);
-  const previousIds = loadBlurHistory().filter((id) => !currentIds.includes(id));
-  localStorage.setItem(BLUR_HISTORY_KEY, JSON.stringify([...currentIds, ...previousIds].slice(0, BLUR_HISTORY_LIMIT)));
+  rememberRecentIds(BLUR_HISTORY_KEY, items.map((item) => item.id), BLUR_HISTORY_LIMIT);
 }
 
 function selectBlurItems(content: unknown) {
@@ -117,34 +194,47 @@ function selectBlurItems(content: unknown) {
 
 function selectLieQuestions(content: unknown) {
   const generated = ensureList((content as LieContent).questions, 5);
-  const source = generated.length >= 5 ? generated : LIE_DETECTOR_FACTS;
-  return shuffle(source).slice(0, 10);
+  const generatedQuestions = generated.length >= 5
+    ? preferFresh(generated, LIE_HISTORY_KEY, (question) => normalizeName(question.fact)).slice(0, 5)
+    : [];
+  const fallbackQuestions = preferFresh(LIE_DETECTOR_FACTS, LIE_HISTORY_KEY, (question) => normalizeName(question.fact));
+  const selected: LieDetectorQuestion[] = [];
+  const seen = new Set<string>();
+
+  for (const question of [...generatedQuestions, ...fallbackQuestions]) {
+    const key = normalizeName(question.fact);
+    if (!key || seen.has(key)) continue;
+
+    selected.push(question);
+    seen.add(key);
+    if (selected.length >= 10) break;
+  }
+
+  return selected;
 }
 
 function selectSpeedWords(content: unknown) {
-  const words = ensureList((content as WordsContent).words, 5);
-  return shuffle(words);
+  return selectWordItems(content, "speed_quiz", SPEED_HISTORY_KEY);
 }
 
 function selectChosungQuestions(content: unknown) {
   const generated = ensureList((content as ChosungContent).questions, 1);
   const fallback = ensureList((FALLBACK_CONTENT.chosung_quiz as ChosungContent).questions, 1);
-  const selected: ChosungQuestion[] = [];
+  const candidates: ChosungQuestion[] = [];
   const seenAnswers = new Set<string>();
 
-  for (const rawQuestion of [...generated, ...fallback]) {
+  for (const rawQuestion of [...shuffle(generated), ...shuffle(fallback)]) {
     const question = normalizeChosungQuestion(rawQuestion);
     if (!question) continue;
 
     const key = question.answers[0].replace(/\s+/g, "").toLowerCase();
     if (seenAnswers.has(key)) continue;
 
-    selected.push(question);
+    candidates.push(question);
     seenAnswers.add(key);
-    if (selected.length >= 15) break;
   }
 
-  return selected;
+  return preferFresh(candidates, CHOSUNG_HISTORY_KEY, (question) => normalizeName(question.answers[0] ?? "")).slice(0, 15);
 }
 
 function findEmojiQuizQuestion(question: EmojiQuizQuestion) {
@@ -162,7 +252,7 @@ function findEmojiQuizQuestion(question: EmojiQuizQuestion) {
 
 function selectEmojiQuestions(content: unknown) {
   const generated = ensureList((content as EmojiContent).questions, 1);
-  const selected: EmojiQuizQuestion[] = [];
+  const candidates: EmojiQuizQuestion[] = [];
   const seen = new Set<string>();
 
   const addQuestion = (question: EmojiQuizQuestion | undefined) => {
@@ -173,21 +263,19 @@ function selectEmojiQuestions(content: unknown) {
     const key = `${answerKey}:${emojiKey}`;
     if (!answerKey || seen.has(key)) return;
 
-    selected.push(question);
+    candidates.push(question);
     seen.add(key);
   };
 
-  for (const question of generated) {
+  for (const question of shuffle(generated)) {
     addQuestion(findEmojiQuizQuestion(question));
-    if (selected.length >= 10) break;
   }
 
   for (const question of shuffle(EMOJI_QUIZ_QUESTIONS)) {
     addQuestion(question);
-    if (selected.length >= 10) break;
   }
 
-  return selected;
+  return preferFresh(candidates, EMOJI_HISTORY_KEY, (question) => normalizeName(question.answers[0] ?? "")).slice(0, 10);
 }
 
 function formatCountdown(seconds: number) {
@@ -315,6 +403,10 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
   const [rawScores, setRawScores] = useState<Record<string, number>>({});
   const currentTeam = teams[teamIndex];
   const currentWords = wordDecks[currentTeam.id] ?? words;
+
+  useEffect(() => {
+    rememberRecentIds(SPEED_HISTORY_KEY, words, WORD_HISTORY_LIMIT);
+  }, [words]);
 
   useEffect(() => {
     if (phase !== "playing") return;
@@ -543,6 +635,10 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
   const team = game.teams[Math.floor(index / 5)];
 
   useEffect(() => {
+    rememberRecentIds(CHOSUNG_HISTORY_KEY, questions.map((item) => item.answers[0] ?? ""), CHOSUNG_HISTORY_LIMIT);
+  }, [questions]);
+
+  useEffect(() => {
     if (done || answered) return;
     if (seconds <= 0) {
       setAnswered(true);
@@ -639,6 +735,10 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
   const question = questions[index % questions.length];
   const done = index >= questionCount;
 
+  useEffect(() => {
+    rememberRecentIds(EMOJI_HISTORY_KEY, questions.map((item) => item.answers[0] ?? ""), EMOJI_HISTORY_LIMIT);
+  }, [questions]);
+
   if (done) {
     return (
       <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5">
@@ -718,6 +818,10 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
   const done = index >= questionCount;
   const question = questions[index % questions.length];
   const team = game.teams[index % game.teams.length];
+
+  useEffect(() => {
+    rememberRecentIds(LIE_HISTORY_KEY, questions.map((item) => item.fact), LIE_HISTORY_LIMIT);
+  }, [questions]);
 
   useEffect(() => {
     if (done || feedback) return;
@@ -804,7 +908,7 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
 }
 
 function SilentShoutRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const words = ensureList((content as WordsContent).words, 5);
+  const words = useMemo(() => selectWordItems(content, "silent_shout", SILENT_HISTORY_KEY), [content]);
   const [wordsPerTeam, setWordsPerTeam] = useState(5);
   const [index, setIndex] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
@@ -812,6 +916,10 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
   const totalQuestions = game.teams.length * wordsPerTeam;
   const done = index >= totalQuestions;
   const team = game.teams[index % game.teams.length];
+
+  useEffect(() => {
+    rememberRecentIds(SILENT_HISTORY_KEY, words, WORD_HISTORY_LIMIT);
+  }, [words]);
 
   if (done) {
     return (
@@ -899,7 +1007,7 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
 }
 
 function CharadesRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const words = ensureList((content as WordsContent).words, 5);
+  const words = useMemo(() => selectWordItems(content, "charades", CHARADES_HISTORY_KEY), [content]);
   const [teamIndex, setTeamIndex] = useState(0);
   const [phase, setPhase] = useState<"ready" | "playing" | "done">("ready");
   const [wordIndex, setWordIndex] = useState(0);
@@ -908,6 +1016,10 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
   const [scores, setScores] = useState<Record<string, number>>({});
   const team = game.teams[teamIndex];
   const allDone = Object.keys(scores).length === game.teams.length;
+
+  useEffect(() => {
+    rememberRecentIds(CHARADES_HISTORY_KEY, words, WORD_HISTORY_LIMIT);
+  }, [words]);
 
   useEffect(() => {
     if (phase !== "playing") return;
