@@ -1,3 +1,4 @@
+import { LIE_DETECTOR_FACTS } from "./lieDetectorFacts";
 import type { RoundType } from "../types";
 
 export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
@@ -74,58 +75,7 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
     ],
   },
   lie_detector: {
-    questions: [
-      {
-        fact: "코끼리는 점프할 수 없다",
-        isTrue: true,
-        explanation: "몸무게가 무겁고 다리 구조상 네 발이 동시에 뜨기 어렵다고 알려져 있어요.",
-      },
-      {
-        fact: "문어는 심장이 3개다",
-        isTrue: true,
-        explanation: "두 개는 아가미 쪽, 하나는 온몸으로 피를 보내요.",
-      },
-      {
-        fact: "바나나는 나무에서 열린다",
-        isTrue: false,
-        explanation: "바나나 식물은 나무처럼 보이지만 사실 거대한 풀에 가까워요.",
-      },
-      {
-        fact: "기린의 혀는 보라색에 가깝다",
-        isTrue: true,
-        explanation: "햇빛을 많이 받는 혀를 보호하는 데 도움이 된다고 해요.",
-      },
-      {
-        fact: "상어는 뼈가 하나도 없다",
-        isTrue: true,
-        explanation: "상어의 골격은 뼈가 아니라 연골로 이루어져 있어요.",
-      },
-      {
-        fact: "달팽이는 이가 없다",
-        isTrue: false,
-        explanation: "아주 작은 이빨 같은 구조가 많아요.",
-      },
-      {
-        fact: "사람은 우주에서 키가 조금 커질 수 있다",
-        isTrue: true,
-        explanation: "중력이 줄어 척추가 살짝 늘어날 수 있어요.",
-      },
-      {
-        fact: "펭귄은 북극에 산다",
-        isTrue: false,
-        explanation: "야생 펭귄은 주로 남반구에 살아요.",
-      },
-      {
-        fact: "꿀은 아주 오래 보관될 수 있다",
-        isTrue: true,
-        explanation: "수분이 적고 산성이어서 잘 상하지 않아요.",
-      },
-      {
-        fact: "금붕어의 기억력은 3초뿐이다",
-        isTrue: false,
-        explanation: "금붕어도 학습하고 기억할 수 있다는 연구들이 있어요.",
-      },
-    ],
+    questions: LIE_DETECTOR_FACTS,
   },
   silent_shout: {
     words: [

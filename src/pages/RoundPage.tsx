@@ -4,6 +4,7 @@ import Button from "../components/Button";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
 import { BLUR_IMAGE_ITEMS, type BlurImageAsset } from "../data/blurImageItems";
+import { LIE_DETECTOR_FACTS, type LieDetectorQuestion } from "../data/lieDetectorFacts";
 import { getRoundInfo } from "../data/rounds";
 import { playBeep, playCorrect, playWrong } from "../lib/audio";
 import { generateRoundContent } from "../lib/claude";
@@ -16,7 +17,7 @@ type WordsContent = { words?: string[] };
 type BlurContent = { items?: { id?: string; name: string; emoji?: string; image?: string }[] };
 type ChosungContent = { questions?: { chosung: string; answers: string[] }[] };
 type EmojiContent = { questions?: { emoji: string; answers: string[]; category: string }[] };
-type LieContent = { questions?: { fact: string; isTrue: boolean; explanation: string }[] };
+type LieContent = { questions?: LieDetectorQuestion[] };
 
 const roundTypes: RoundType[] = [
   "speed_quiz",
@@ -73,6 +74,12 @@ function selectBlurItems(content: unknown) {
   }
 
   return selected.slice(0, 8);
+}
+
+function selectLieQuestions(content: unknown) {
+  const generated = ensureList((content as LieContent).questions, 5);
+  const source = generated.length >= 5 ? generated : LIE_DETECTOR_FACTS;
+  return shuffle(source).slice(0, 10);
 }
 
 function Countdown({ seconds, urgentAt = 5 }: { seconds: number; urgentAt?: number }) {
@@ -564,12 +571,13 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
 }
 
 function LieDetectorRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const questions = ensureList((content as LieContent).questions, 5);
+  const questions = useMemo(() => selectLieQuestions(content), [content]);
   const [index, setIndex] = useState(0);
   const [seconds, setSeconds] = useState(10);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [feedback, setFeedback] = useState("");
-  const done = index >= Math.min(10, questions.length);
+  const questionCount = Math.min(10, questions.length);
+  const done = index >= questionCount;
   const question = questions[index % questions.length];
   const team = game.teams[index % game.teams.length];
 
