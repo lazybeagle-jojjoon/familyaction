@@ -1,4 +1,5 @@
 import { LIE_DETECTOR_FACTS } from "./lieDetectorFacts";
+import { EMOJI_QUIZ_QUESTIONS } from "./emojiQuizQuestions";
 import type { RoundType } from "../types";
 
 export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
@@ -109,18 +110,7 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
     ],
   },
   emoji_quiz: {
-    questions: [
-      { emoji: "🌟⭐🌟", answers: ["반짝반짝 작은별"], category: "노래" },
-      { emoji: "🧊👸", answers: ["겨울왕국", "엘사"], category: "영화" },
-      { emoji: "🐢🐰🏃", answers: ["토끼와 거북이"], category: "속담" },
-      { emoji: "👒🏴‍☠️🍖", answers: ["루피", "원피스"], category: "캐릭터" },
-      { emoji: "🦁👑", answers: ["라이온킹"], category: "영화" },
-      { emoji: "🍎📱", answers: ["애플", "아이폰"], category: "캐릭터" },
-      { emoji: "🐷🏠🌬️", answers: ["아기돼지 삼형제"], category: "영화" },
-      { emoji: "🦊🍇", answers: ["여우와 신포도"], category: "속담" },
-      { emoji: "👶🦈", answers: ["아기상어"], category: "노래" },
-      { emoji: "⚡👦🪄", answers: ["해리포터"], category: "영화" },
-    ],
+    questions: EMOJI_QUIZ_QUESTIONS,
   },
   lie_detector: {
     questions: LIE_DETECTOR_FACTS,

@@ -1,5 +1,6 @@
 import type { RoundInfo, RoundType } from "../types";
 import { blurImageCandidateText } from "./blurImageItems";
+import { emojiQuizCandidateText } from "./emojiQuizQuestions";
 
 export const ROUND_INFOS: RoundInfo[] = [
   {
@@ -36,7 +37,7 @@ export const ROUND_INFOS: RoundInfo[] = [
     description: "이모지 힌트로 노래, 영화, 캐릭터, 속담 맞히기",
     tag: "온라인",
     prompt:
-      '초등학생이 맞힐 수 있는 노래/영화/캐릭터/속담 10개를 이모지로 표현. 형식: {"questions": [{"emoji": "🌟⭐🌟", "answers": ["반짝반짝 작은별"], "category": "노래"}, ...]}. 카테고리: 노래, 영화, 캐릭터, 속담 중 다양하게.',
+      `초등학생이 맞힐 수 있는 이모지 퀴즈 10개를 아래 후보 목록에서만 골라 JSON으로 줘. emoji, answers, category는 후보의 의미와 정확히 맞아야 하고, 후보에 없는 "벌과 베짱이"처럼 잘못된 제목을 만들지 마. 같은 정답이나 비슷한 이모지 조합은 반복하지 말고 노래/영화/캐릭터/속담을 골고루 섞어. 후보: ${emojiQuizCandidateText}. 형식: {"questions": [{"emoji": "👶🦈", "answers": ["아기상어", "상어가족"], "category": "노래"}, ...]}`,
   },
   {
     type: "lie_detector",

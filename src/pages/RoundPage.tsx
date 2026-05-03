@@ -4,6 +4,7 @@ import Button from "../components/Button";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
 import { BLUR_IMAGE_ITEMS, type BlurImageAsset } from "../data/blurImageItems";
+import { EMOJI_QUIZ_QUESTIONS, type EmojiQuizQuestion } from "../data/emojiQuizQuestions";
 import { FALLBACK_CONTENT } from "../data/fallbacks";
 import { LIE_DETECTOR_FACTS, type LieDetectorQuestion } from "../data/lieDetectorFacts";
 import { getRoundInfo } from "../data/rounds";
@@ -18,7 +19,7 @@ import type { GameState, RoundResult, RoundType, Team } from "../types";
 type WordsContent = { words?: string[] };
 type BlurContent = { items?: { id?: string; name: string; emoji?: string; image?: string }[] };
 type ChosungContent = { questions?: ChosungQuestion[] };
-type EmojiContent = { questions?: { emoji: string; answers: string[]; category: string }[] };
+type EmojiContent = { questions?: EmojiQuizQuestion[] };
 type LieContent = { questions?: LieDetectorQuestion[] };
 
 const SPEED_QUIZ_SECONDS = 180;
@@ -107,6 +108,49 @@ function selectChosungQuestions(content: unknown) {
     selected.push(question);
     seenAnswers.add(key);
     if (selected.length >= 15) break;
+  }
+
+  return selected;
+}
+
+function findEmojiQuizQuestion(question: EmojiQuizQuestion) {
+  const requestedEmoji = question.emoji?.trim();
+  const requestedAnswers = Array.isArray(question.answers) ? question.answers.map(normalizeName) : [];
+
+  return EMOJI_QUIZ_QUESTIONS.find((candidate) => {
+    const candidateAnswers = candidate.answers.map(normalizeName);
+    return (
+      candidate.emoji === requestedEmoji ||
+      candidateAnswers.some((answer) => requestedAnswers.includes(answer))
+    );
+  });
+}
+
+function selectEmojiQuestions(content: unknown) {
+  const generated = ensureList((content as EmojiContent).questions, 1);
+  const selected: EmojiQuizQuestion[] = [];
+  const seen = new Set<string>();
+
+  const addQuestion = (question: EmojiQuizQuestion | undefined) => {
+    if (!question) return;
+
+    const answerKey = normalizeName(question.answers[0] ?? "");
+    const emojiKey = question.emoji;
+    const key = `${answerKey}:${emojiKey}`;
+    if (!answerKey || seen.has(key)) return;
+
+    selected.push(question);
+    seen.add(key);
+  };
+
+  for (const question of generated) {
+    addQuestion(findEmojiQuizQuestion(question));
+    if (selected.length >= 10) break;
+  }
+
+  for (const question of shuffle(EMOJI_QUIZ_QUESTIONS)) {
+    addQuestion(question);
+    if (selected.length >= 10) break;
   }
 
   return selected;
@@ -539,12 +583,13 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
 }
 
 function EmojiRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const questions = ensureList((content as EmojiContent).questions, 5);
+  const questions = useMemo(() => selectEmojiQuestions(content), [content]);
   const [index, setIndex] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
+  const questionCount = Math.min(10, questions.length);
   const question = questions[index % questions.length];
-  const done = index >= Math.min(10, questions.length);
+  const done = index >= questionCount;
 
   if (done) {
     return (
@@ -575,7 +620,7 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
     <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
       <div className="flex items-center justify-between gap-3">
         <span className="rounded-full bg-[#FFE66D] px-4 py-2 font-black">{question.category}</span>
-        <span className="font-black">{index + 1} / {Math.min(10, questions.length)}</span>
+        <span className="font-black">{index + 1} / {questionCount}</span>
       </div>
       <div className="rounded-3xl bg-white p-8 text-7xl leading-tight sm:text-9xl">{question.emoji}</div>
       <div className="grid gap-3 sm:grid-cols-3">
