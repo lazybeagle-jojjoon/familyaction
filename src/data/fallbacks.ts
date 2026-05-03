@@ -1,4 +1,3 @@
-import { BLUR_IMAGE_ITEMS } from "./blurImageItems";
 import type { RoundType } from "../types";
 
 export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
@@ -27,7 +26,7 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
     ],
   },
   blur_image: {
-    items: BLUR_IMAGE_ITEMS.slice(0, 8),
+    items: [],
   },
   chosung_quiz: {
     questions: [
