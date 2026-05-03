@@ -4,9 +4,11 @@ import Button from "../components/Button";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
 import { BLUR_IMAGE_ITEMS, type BlurImageAsset } from "../data/blurImageItems";
+import { FALLBACK_CONTENT } from "../data/fallbacks";
 import { LIE_DETECTOR_FACTS, type LieDetectorQuestion } from "../data/lieDetectorFacts";
 import { getRoundInfo } from "../data/rounds";
 import { playBeep, playCorrect, playWrong } from "../lib/audio";
+import { normalizeChosungQuestion, type ChosungQuestion } from "../lib/chosung";
 import { generateRoundContent } from "../lib/claude";
 import { correctConfetti } from "../lib/effects";
 import { rankAward } from "../lib/scoring";
@@ -15,7 +17,7 @@ import type { GameState, RoundResult, RoundType, Team } from "../types";
 
 type WordsContent = { words?: string[] };
 type BlurContent = { items?: { id?: string; name: string; emoji?: string; image?: string }[] };
-type ChosungContent = { questions?: { chosung: string; answers: string[] }[] };
+type ChosungContent = { questions?: ChosungQuestion[] };
 type EmojiContent = { questions?: { emoji: string; answers: string[]; category: string }[] };
 type LieContent = { questions?: LieDetectorQuestion[] };
 
@@ -80,6 +82,27 @@ function selectLieQuestions(content: unknown) {
   const generated = ensureList((content as LieContent).questions, 5);
   const source = generated.length >= 5 ? generated : LIE_DETECTOR_FACTS;
   return shuffle(source).slice(0, 10);
+}
+
+function selectChosungQuestions(content: unknown) {
+  const generated = ensureList((content as ChosungContent).questions, 1);
+  const fallback = ensureList((FALLBACK_CONTENT.chosung_quiz as ChosungContent).questions, 1);
+  const selected: ChosungQuestion[] = [];
+  const seenAnswers = new Set<string>();
+
+  for (const rawQuestion of [...generated, ...fallback]) {
+    const question = normalizeChosungQuestion(rawQuestion);
+    if (!question) continue;
+
+    const key = question.answers[0].replace(/\s+/g, "").toLowerCase();
+    if (seenAnswers.has(key)) continue;
+
+    selected.push(question);
+    seenAnswers.add(key);
+    if (selected.length >= 15) break;
+  }
+
+  return selected;
 }
 
 function Countdown({ seconds, urgentAt = 5 }: { seconds: number; urgentAt?: number }) {
@@ -394,7 +417,7 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
 }
 
 function ChosungRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const questions = ensureList((content as ChosungContent).questions, 5);
+  const questions = useMemo(() => selectChosungQuestions(content), [content]);
   const totalQuestions = game.teams.length * 5;
   const [index, setIndex] = useState(0);
   const [seconds, setSeconds] = useState(30);
