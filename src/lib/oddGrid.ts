@@ -107,7 +107,9 @@ function makeCount(tier: 1 | 2 | 3): OddGridPuzzle {
   const answerIndex = Math.floor(Math.random() * count);
   const cells = Array.from({ length: count }, (_, index) => {
     const number = index + 1;
-    const dots = index === answerIndex ? Math.max(1, number - 1) : number;
+    // 1번 칸에서 점을 하나 빼면 0개가 아니라 1개가 되어 정답이 사라집니다.
+    // 그래서 1번은 점을 하나 더하고, 나머지는 하나 뺍니다.
+    const dots = index === answerIndex ? (number === 1 ? number + 1 : number - 1) : number;
     return `${number} ${"●".repeat(dots)}`;
   });
   return {
@@ -115,7 +117,10 @@ function makeCount(tier: 1 | 2 | 3): OddGridPuzzle {
     cells,
     columns: 2,
     answerIndex,
-    explanation: `${answerIndex + 1} 옆의 점이 하나 모자라요.`,
+    explanation:
+      answerIndex === 0
+        ? "1 옆의 점이 하나 많아요."
+        : `${answerIndex + 1} 옆의 점이 하나 모자라요.`,
   };
 }
 

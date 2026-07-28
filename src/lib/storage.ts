@@ -51,6 +51,16 @@ export function addRoundResult(
   const scores = { ...game.scores };
   const shouldReplace = replaceLast && history.length > 0;
 
+  // 되돌리기는 playedAt으로 최신 결과를 찾습니다. 같은 밀리초에 저장되면 순서가 모호해지므로
+  // 항상 기존 기록보다 뒤가 되도록 보정합니다.
+  const latestSaved = Object.values(game.roundResults)
+    .flatMap((results) => results ?? [])
+    .reduce((newest, item) => (item.playedAt > newest ? item.playedAt : newest), "");
+  const stamped: RoundResult =
+    latestSaved && result.playedAt <= latestSaved
+      ? { ...result, playedAt: new Date(new Date(latestSaved).getTime() + 1).toISOString() }
+      : result;
+
   if (shouldReplace) {
     const previous = history[history.length - 1];
     for (const [teamId, points] of Object.entries(previous.teamScores)) {
@@ -58,7 +68,7 @@ export function addRoundResult(
     }
   }
 
-  for (const [teamId, points] of Object.entries(result.teamScores)) {
+  for (const [teamId, points] of Object.entries(stamped.teamScores)) {
     scores[teamId] = (scores[teamId] ?? 0) + points;
   }
 
@@ -67,7 +77,7 @@ export function addRoundResult(
     scores,
     roundResults: {
       ...game.roundResults,
-      [result.roundType]: shouldReplace ? [...history.slice(0, -1), result] : [...history, result],
+      [stamped.roundType]: shouldReplace ? [...history.slice(0, -1), stamped] : [...history, stamped],
     },
     updatedAt: new Date().toISOString(),
   };
