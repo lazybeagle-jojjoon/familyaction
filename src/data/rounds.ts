@@ -137,6 +137,13 @@ export const ROUND_INFOS: RoundInfo[] = [
     tag: "화면",
   },
   {
+    type: "odd_grid",
+    icon: "🔍",
+    title: "수상한 한 칸",
+    description: "규칙을 혼자 어긴 칸 하나를 찾아요",
+    tag: "화면",
+  },
+  {
     type: "pool_finale",
     icon: "🏊",
     title: "수영장 보물찾기",

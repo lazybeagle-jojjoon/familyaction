@@ -14,6 +14,7 @@ export type RoundType =
   | "team_vault"
   | "stroke_draw"
   | "cargo_six"
+  | "odd_grid"
   | "silent_shout"
   | "charades"
   | "pool_finale";

@@ -22,6 +22,7 @@ import { TRAP_CARDS } from "../data/trapCards";
 import { VAULT_CASES, type VaultClue } from "../data/vaultCases";
 import { playBeep, playCorrect, playWrong } from "../lib/audio";
 import { normalizeChosungQuestion, type ChosungQuestion } from "../lib/chosung";
+import { makeOddGrid } from "../lib/oddGrid";
 import { generateRoundContent } from "../lib/claude";
 import { correctConfetti, finaleConfetti } from "../lib/effects";
 import { loadPhotos } from "../lib/photoLibrary";
@@ -79,6 +80,7 @@ const roundTypes: RoundType[] = [
   "team_vault",
   "stroke_draw",
   "cargo_six",
+  "odd_grid",
   "silent_shout",
   "charades",
   "pool_finale",
@@ -2858,6 +2860,117 @@ function CargoRound({ game, type }: { game: GameState; type: RoundType }) {
   );
 }
 
+/**
+ * 수상한 한 칸 — 화면 안에서 규칙을 혼자 어긴 칸을 찾습니다.
+ * 문제를 매번 새로 만들어 내기 때문에 몇 판을 해도 같은 화면이 안 나옵니다.
+ * 지식이 아니라 관찰력이라 아이가 어른보다 훨씬 빨리 찾을 때가 많습니다.
+ */
+function OddGridRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const totalQuestions = teams.length * 3;
+
+  const puzzles = useMemo(
+    () =>
+      Array.from({ length: totalQuestions }, (_, index) =>
+        makeOddGrid((Math.floor(index / teams.length) + 1) as 1 | 2 | 3),
+      ),
+    [teams.length, totalQuestions],
+  );
+
+  const [index, setIndex] = useState(0);
+  const [tries, setTries] = useState(0);
+  const [finished, setFinished] = useState(false);
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const done = index >= totalQuestions;
+  const puzzle = puzzles[index % puzzles.length];
+  const block = Math.floor(index / teams.length);
+  const team = teams[(index + block) % teams.length];
+
+  const tap = (cell: number) => {
+    if (finished) return;
+
+    if (cell === puzzle.answerIndex) {
+      // 첫 번에 찾으면 2점, 두 번째에 찾으면 1점.
+      const points = tries === 0 ? 2 : tries === 1 ? 1 : 0;
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
+      setFinished(true);
+      playCorrect();
+      if (points > 0) correctConfetti();
+      return;
+    }
+
+    const nextTries = tries + 1;
+    setTries(nextTries);
+    playWrong();
+    if (nextTries >= 3) setFinished(true);
+  };
+
+  if (done) {
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="수상한 한 칸 결과"
+        scores={scores}
+        note="한 번에 찾으면 2점, 두 번째에 찾으면 1점"
+      />
+    );
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {index + 1} / {totalQuestions} 문제 · 난이도 {block + 1}
+      </p>
+      <h2 className="rounded-xl bg-[#4ECDC4] p-4 text-xl font-black">{puzzle.rule}</h2>
+      <p className="font-black">
+        {finished ? "정답 위치를 확인하세요" : `남은 기회 ${Math.max(0, 2 - tries)}번`}
+      </p>
+
+      <div
+        className="mx-auto grid w-full max-w-lg gap-2"
+        style={{ gridTemplateColumns: `repeat(${puzzle.columns}, minmax(0, 1fr))` }}
+      >
+        {puzzle.cells.map((cell, cellIndex) => {
+          const isAnswer = cellIndex === puzzle.answerIndex;
+          return (
+            <button
+              key={`${cell}-${cellIndex}`}
+              type="button"
+              disabled={finished}
+              onClick={() => tap(cellIndex)}
+              aria-label={`${cellIndex + 1}번 칸`}
+              className={`aspect-square rounded-xl border-3 border-[#171721] text-2xl font-black sm:text-3xl ${
+                finished && isAnswer ? "bg-[#D3F9D8]" : "bg-white"
+              }`}
+            >
+              {cell}
+            </button>
+          );
+        })}
+      </div>
+
+      {finished && (
+        <>
+          <p className="rounded-xl bg-[#FFF3BF] p-4 text-lg font-black">{puzzle.explanation}</p>
+          <Button
+            tone="blue"
+            className="text-2xl"
+            onClick={() => {
+              setIndex((value) => value + 1);
+              setTries(0);
+              setFinished(false);
+            }}
+          >
+            {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
 /** 새 라운드들이 같은 모양의 결과 화면을 쓰도록 묶었습니다. */
 function RoundResult({
   game,
@@ -3104,6 +3217,8 @@ export default function RoundPage() {
     body = <DrawingRound game={game} type={roundType} />;
   } else if (roundType === "cargo_six") {
     body = <CargoRound game={game} type={roundType} />;
+  } else if (roundType === "odd_grid") {
+    body = <OddGridRound game={game} type={roundType} />;
   } else if (roundType === "silent_shout") {
     body = <SilentShoutRound game={game} content={content} type={roundType} />;
   } else if (roundType === "charades") {

@@ -27,6 +27,7 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
   team_vault: {},
   stroke_draw: {},
   cargo_six: {},
+  odd_grid: {},
   silent_shout: { words: SILENT_SHOUT_WORDS },
   charades: { words: CHARADES_WORDS },
   pool_finale: {
