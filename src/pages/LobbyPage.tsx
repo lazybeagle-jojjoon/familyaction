@@ -3,8 +3,8 @@ import { Link, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
-import { ROUND_INFOS } from "../data/rounds";
-import { loadGameState } from "../lib/storage";
+import { getRoundInfo, ROUND_INFOS } from "../data/rounds";
+import { lastRoundResult, loadGameState, saveGameState, undoLastRoundResult } from "../lib/storage";
 import type { GameState } from "../types";
 
 export default function LobbyPage() {
@@ -44,6 +44,8 @@ export default function LobbyPage() {
     return ROUND_INFOS.filter((round) => round.tag === filter);
   }, [filter, game]);
 
+  const undoTarget = game ? lastRoundResult(game) : null;
+
   if (!game) return null;
 
   return (
@@ -68,6 +70,24 @@ export default function LobbyPage() {
             {showRounds ? "라운드 카드 접기" : "+ 라운드 추가"}
           </Button>
         </div>
+
+        {undoTarget && (
+          <Button
+            tone="white"
+            className="text-lg"
+            onClick={() => {
+              const label = getRoundInfo(undoTarget.roundType)?.title ?? "마지막 라운드";
+              if (!window.confirm(`'${label}' 결과를 점수판에서 빼고 없던 일로 할까요?`)) return;
+              const next = undoLastRoundResult(game);
+              if (next) {
+                saveGameState(next);
+                setGame(next);
+              }
+            }}
+          >
+            ↩️ 마지막 결과 취소 ({getRoundInfo(undoTarget.roundType)?.title})
+          </Button>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2">
           <Button tone="white" className="text-lg" onClick={() => navigate("/photos")}>

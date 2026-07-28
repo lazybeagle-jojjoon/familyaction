@@ -73,6 +73,52 @@ export function addRoundResult(
   };
 }
 
+/**
+ * 마지막으로 확정한 라운드 결과를 되돌립니다.
+ * 진행자가 실수로 점수를 확정했을 때 판을 다시 짜지 않아도 되게 합니다.
+ */
+export function undoLastRoundResult(game: GameState): GameState | null {
+  let latest: { roundType: RoundResult["roundType"]; result: RoundResult } | null = null;
+
+  for (const [roundType, results] of Object.entries(game.roundResults)) {
+    const last = results?.[results.length - 1];
+    if (!last) continue;
+    if (!latest || last.playedAt > latest.result.playedAt) {
+      latest = { roundType: roundType as RoundResult["roundType"], result: last };
+    }
+  }
+
+  if (!latest) return null;
+
+  const scores = { ...game.scores };
+  for (const [teamId, points] of Object.entries(latest.result.teamScores)) {
+    scores[teamId] = (scores[teamId] ?? 0) - points;
+  }
+
+  const remaining = (game.roundResults[latest.roundType] ?? []).slice(0, -1);
+  const roundResults = { ...game.roundResults };
+  if (remaining.length) {
+    roundResults[latest.roundType] = remaining;
+  } else {
+    delete roundResults[latest.roundType];
+  }
+
+  return { ...game, scores, roundResults, updatedAt: new Date().toISOString() };
+}
+
+/** 되돌릴 대상이 있는지, 있으면 어떤 라운드인지 알려 줍니다. */
+export function lastRoundResult(game: GameState) {
+  let latest: { roundType: RoundResult["roundType"]; result: RoundResult } | null = null;
+  for (const [roundType, results] of Object.entries(game.roundResults)) {
+    const last = results?.[results.length - 1];
+    if (!last) continue;
+    if (!latest || last.playedAt > latest.result.playedAt) {
+      latest = { roundType: roundType as RoundResult["roundType"], result: last };
+    }
+  }
+  return latest;
+}
+
 export function saveApiKey(apiKey: string) {
   localStorage.setItem(API_KEY_STORAGE_KEY, apiKey.trim());
 }
