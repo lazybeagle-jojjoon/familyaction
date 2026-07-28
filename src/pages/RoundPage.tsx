@@ -2328,10 +2328,8 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
     if (!done) markShown(word);
   }, [done, markShown, word]);
 
-  const timeUp = useCallback(() => {
-    setPhase("judged");
-    setShowAnswer(true);
-  }, []);
+  // 시간이 끝나도 정답은 아직 감춥니다. 정답을 본 뒤에 성공 처리하면 판정이 무너져요.
+  const timeUp = useCallback(() => setPhase("judged"), []);
   const seconds = useDeadlineCountdown(phase === "thinking", 10, timeUp, index);
 
   const judge = (success: boolean) => {
@@ -2380,22 +2378,21 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
       )}
 
       {showAnswer && (
-        <p className="rounded-xl bg-[#FFF3BF] p-4 text-3xl font-black">정답: {reverseHangul(word)}</p>
-      )}
-
-      {phase === "judged" && (
-        <Button
-          tone="blue"
-          className="text-2xl"
-          onClick={() => {
-            scoredRef.current = false;
-            setIndex((value) => value + 1);
-            setPhase("ready");
-            setShowAnswer(false);
-          }}
-        >
-          {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
-        </Button>
+        <>
+          <p className="rounded-xl bg-[#FFF3BF] p-4 text-3xl font-black">정답: {reverseHangul(word)}</p>
+          <Button
+            tone="blue"
+            className="text-2xl"
+            onClick={() => {
+              scoredRef.current = false;
+              setIndex((value) => value + 1);
+              setPhase("ready");
+              setShowAnswer(false);
+            }}
+          >
+            {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+          </Button>
+        </>
       )}
     </section>
   );
@@ -2619,6 +2616,7 @@ function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
   const [phase, setPhase] = useState<"ready" | "drawing" | "judged">("ready");
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showCard, setShowCard] = useState(false);
+  const [resolved, setResolved] = useState(false);
   const done = index >= Math.min(totalQuestions, cards.length);
   const card = cards[index % Math.max(1, cards.length)];
   const block = Math.floor(index / teams.length);
@@ -2630,12 +2628,14 @@ function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
     if (!done) markShown(card?.id);
   }, [card, done, markShown]);
 
+  // 시간이 끝나도 정답은 아직 감춥니다. 진행자가 판정한 뒤에 공개돼요.
   const timeUp = useCallback(() => setPhase("judged"), []);
   const seconds = useDeadlineCountdown(phase === "drawing", 45, timeUp, index);
 
   const judge = (success: boolean) => {
     if (scoredRef.current) return;
     scoredRef.current = true;
+    setResolved(true);
     if (success) {
       setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
       playCorrect();
@@ -2697,7 +2697,7 @@ function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
         </>
       )}
 
-      {phase === "judged" && (
+      {resolved && (
         <>
           <p className="rounded-xl bg-[#FFF3BF] p-4 text-2xl font-black">정답: {card.answer}</p>
           <Button
@@ -2705,6 +2705,7 @@ function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
             className="text-2xl"
             onClick={() => {
               scoredRef.current = false;
+              setResolved(false);
               setIndex((value) => value + 1);
               setPhase("ready");
               setShowCard(false);
@@ -3010,6 +3011,7 @@ function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
   const team = teams[(index + block) % teams.length];
   const markShown = useShownHistory(HOMONYM_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
   const scoredRef = useRef(false);
+  const [resolved, setResolved] = useState(false);
 
   useEffect(() => {
     if (!done) markShown(card?.id);
@@ -3021,6 +3023,7 @@ function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
   const judge = (points: number) => {
     if (scoredRef.current) return;
     scoredRef.current = true;
+    setResolved(true);
     if (points > 0) {
       setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
       playCorrect();
@@ -3076,7 +3079,7 @@ function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
         </div>
       )}
 
-      {phase === "judged" && (
+      {resolved && (
         <>
           <div className="grid gap-2 rounded-xl bg-[#FFF3BF] p-4 text-left">
             {card.senses.map((sense) => (
@@ -3090,6 +3093,7 @@ function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
             className="text-2xl"
             onClick={() => {
               scoredRef.current = false;
+              setResolved(false);
               setIndex((value) => value + 1);
               setPhase("ready");
             }}
