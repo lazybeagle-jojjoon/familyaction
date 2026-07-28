@@ -4,7 +4,8 @@ import Button from "../components/Button";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
 import { getRoundInfo, ROUND_INFOS } from "../data/rounds";
-import { lastRoundResult, loadGameState, saveGameState, undoLastRoundResult } from "../lib/storage";
+import { TEAM_MARK } from "../lib/teams";
+import { adjustTeamScore, lastRoundResult, loadGameState, saveGameState, undoLastRoundResult } from "../lib/storage";
 import type { GameState } from "../types";
 
 export default function LobbyPage() {
@@ -12,6 +13,7 @@ export default function LobbyPage() {
   const [game, setGame] = useState<GameState | null>(() => loadGameState());
   const [showRounds, setShowRounds] = useState(true);
   const [filter, setFilter] = useState<"all" | "화면" | "말·몸" | "new">("all");
+  const [editingScores, setEditingScores] = useState(false);
 
   useEffect(() => {
     if (!game) navigate("/setup", { replace: true });
@@ -70,6 +72,44 @@ export default function LobbyPage() {
             {showRounds ? "라운드 카드 접기" : "+ 라운드 추가"}
           </Button>
         </div>
+
+        <Button tone="white" className="text-lg" onClick={() => setEditingScores((value) => !value)}>
+          {editingScores ? "점수 고치기 닫기" : "✏️ 점수 직접 고치기"}
+        </Button>
+
+        {editingScores && (
+          <section className="tv-panel grid gap-3 rounded-2xl p-4">
+            <p className="font-bold leading-7 text-[#4A4A5E]">
+              라운드 중에 잘못 눌렀으면 여기서 총점을 바로 고칠 수 있어요. 어느 라운드였는지 몰라도 괜찮아요.
+            </p>
+            {game.teams.map((team) => (
+              <div key={team.id} className="grid gap-2 rounded-xl bg-white p-3">
+                <div className="flex items-center justify-between gap-2 text-lg font-black">
+                  <span>
+                    {TEAM_MARK[team.color]} {team.name}
+                  </span>
+                  <span className="rounded-full bg-[#FFE66D] px-3 py-1">{game.scores[team.id] ?? 0}점</span>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  {[-5, -1, 1, 5].map((delta) => (
+                    <Button
+                      key={delta}
+                      tone={delta < 0 ? "red" : "green"}
+                      className="min-h-[52px] text-lg"
+                      onClick={() => {
+                        const next = adjustTeamScore(game, team.id, delta);
+                        saveGameState(next);
+                        setGame(next);
+                      }}
+                    >
+                      {delta > 0 ? `+${delta}` : delta}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </section>
+        )}
 
         {undoTarget && (
           <Button

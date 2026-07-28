@@ -141,6 +141,20 @@ export function lastRoundResult(game: GameState) {
   return latest;
 }
 
+/**
+ * 총점을 직접 고칩니다.
+ * 어느 라운드에서 잘못 눌렀든 진행자가 현장에서 바로 바로잡을 수 있게 하는 안전장치입니다.
+ * 점수는 음수로 내려가지 않습니다.
+ */
+export function adjustTeamScore(game: GameState, teamId: string, delta: number): GameState {
+  const current = game.scores[teamId] ?? 0;
+  return {
+    ...game,
+    scores: { ...game.scores, [teamId]: Math.max(0, current + delta) },
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 export function saveApiKey(apiKey: string) {
   localStorage.setItem(API_KEY_STORAGE_KEY, apiKey.trim());
 }
