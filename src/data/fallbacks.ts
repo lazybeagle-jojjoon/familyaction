@@ -21,6 +21,9 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
   sequence_order: {},
   hum_song: {},
   trap_interview: {},
+  nunchi_allin: {},
+  list_race: {},
+  reverse_talk: {},
   silent_shout: { words: SILENT_SHOUT_WORDS },
   charades: { words: CHARADES_WORDS },
   pool_finale: {

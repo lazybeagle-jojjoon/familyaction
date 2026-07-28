@@ -9,8 +9,12 @@ import { FALLBACK_CONTENT } from "../data/fallbacks";
 import { LIE_DETECTOR_FACTS, type LieDetectorQuestion } from "../data/lieDetectorFacts";
 import { HUM_SONGS, type HumSong } from "../data/humSongs";
 import { MEMORY_THEMES } from "../data/memoryThemes";
+import { LIST_CHALLENGES, type ListChallenge } from "../data/listChallenges";
+import { NUNCHI_PROMPTS, type NunchiPrompt } from "../data/nunchiPrompts";
 import { getRoundInfo } from "../data/rounds";
 import { SEQUENCE_CARDS } from "../data/sequenceCards";
+import { SILENT_SHOUT_WORDS } from "../data/silentShoutWords";
+import { SPEED_QUIZ_WORDS } from "../data/speedQuizWords";
 import { TRAP_CARDS } from "../data/trapCards";
 import { playBeep, playCorrect, playWrong } from "../lib/audio";
 import { normalizeChosungQuestion, type ChosungQuestion } from "../lib/chosung";
@@ -65,6 +69,9 @@ const roundTypes: RoundType[] = [
   "sequence_order",
   "hum_song",
   "trap_interview",
+  "nunchi_allin",
+  "list_race",
+  "reverse_talk",
   "silent_shout",
   "charades",
   "pool_finale",
@@ -74,6 +81,9 @@ const MEMORY_HISTORY_KEY = "poolvilla_memory_recent";
 const SEQUENCE_HISTORY_KEY = "poolvilla_sequence_recent";
 const HUM_HISTORY_KEY = "poolvilla_hum_recent";
 const TRAP_HISTORY_KEY = "poolvilla_trap_recent";
+const NUNCHI_HISTORY_KEY = "poolvilla_nunchi_recent";
+const LIST_HISTORY_KEY = "poolvilla_list_recent";
+const REVERSE_HISTORY_KEY = "poolvilla_reverse_recent";
 const NEW_ROUND_HISTORY_LIMIT = 60;
 
 function ensureList<T>(items: T[] | undefined, min = 1): T[] {
@@ -1963,6 +1973,416 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
   );
 }
 
+/**
+ * 눈치 올인 — 세 팀이 동시에 손가락으로 1·2·3을 펴서 공개하고, 진행자가 앱에 기록합니다.
+ * 정답이 없어서 지식 차이가 전혀 없고, 남을 읽는 게 실력인 유일한 라운드입니다.
+ */
+function NunchiAllInRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const ROUNDS = 6;
+  const deciderLabel: Record<NunchiPrompt["decider"], string> = {
+    child: "아이가 결정",
+    adult: "어른이 결정",
+    together: "같이 결정",
+  };
+
+  const prompts = useMemo(() => {
+    // 결정자를 아이·어른·같이 각 2번씩 고정해 한쪽만 계속 정하지 않게 합니다.
+    const plan: NunchiPrompt["decider"][] = ["child", "adult", "together", "adult", "together", "child"];
+    return plan.map((decider, slot) => {
+      const pool = preferFresh(
+        NUNCHI_PROMPTS.filter((prompt) => prompt.decider === decider),
+        NUNCHI_HISTORY_KEY,
+        (prompt) => prompt.id,
+      );
+      return pool[Math.floor(slot / 3) % Math.max(1, pool.length)];
+    });
+  }, []);
+
+  const [index, setIndex] = useState(0);
+  const [picks, setPicks] = useState<Record<string, number>>({});
+  const [allIn, setAllIn] = useState<Record<string, boolean>>({});
+  const [allInUsed, setAllInUsed] = useState<Record<string, boolean>>({});
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const [revealed, setRevealed] = useState(false);
+  const done = index >= ROUNDS;
+  const prompt = prompts[index % prompts.length];
+  const markShown = useShownHistory(NUNCHI_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+
+  useEffect(() => {
+    if (!done) markShown(prompt?.id);
+  }, [done, markShown, prompt]);
+
+  const allPicked = teams.every((team) => picks[team.id]);
+
+  // 혼자 고른 팀이 크게 먹고, 다 갈리면 모두 조금씩, 다 같으면 아무도 못 받습니다.
+  const gains = useMemo(() => {
+    const result: Record<string, number> = {};
+    if (!allPicked) return result;
+
+    const counts = new Map<number, number>();
+    for (const team of teams) {
+      const choice = picks[team.id];
+      counts.set(choice, (counts.get(choice) ?? 0) + 1);
+    }
+
+    for (const team of teams) {
+      const shared = counts.get(picks[team.id]) ?? 1;
+      const base = shared === 1 ? (counts.size === teams.length ? 2 : 3) : 0;
+      result[team.id] = allIn[team.id] ? base * 2 : base;
+    }
+
+    return result;
+  }, [allIn, allPicked, picks, teams]);
+
+  const confirm = () => {
+    setScores((value) => {
+      const next = { ...value };
+      for (const team of teams) next[team.id] = (next[team.id] ?? 0) + (gains[team.id] ?? 0);
+      return next;
+    });
+    setAllInUsed((value) => {
+      const next = { ...value };
+      for (const team of teams) if (allIn[team.id]) next[team.id] = true;
+      return next;
+    });
+    setRevealed(true);
+    playCorrect();
+    correctConfetti();
+  };
+
+  if (done) {
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="눈치 올인 결과"
+        scores={scores}
+        note="혼자 고르면 3점, 셋 다 갈리면 2점씩, 올인은 두 배"
+      />
+    );
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <p className="text-xl font-black">
+        {index + 1} / {ROUNDS} 문제 · {deciderLabel[prompt.decider]}
+      </p>
+      <h2 className="rounded-xl bg-[#4ECDC4] p-4 text-2xl font-black">{prompt.prompt}</h2>
+      <div className="grid gap-2 sm:grid-cols-3">
+        {prompt.choices.map((choice, choiceIndex) => (
+          <div key={choice} className="rounded-xl border-3 border-[#171721] bg-white p-3 font-black">
+            {choiceIndex + 1}. {choice}
+          </div>
+        ))}
+      </div>
+      <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
+        팀끼리 조용히 정한 뒤, 셋 세면 손가락으로 동시에 펴서 공개하세요. 그다음 진행자가 아래에 기록합니다.
+        올인은 팀마다 한 번, 그 문제 점수가 두 배가 됩니다.
+      </p>
+
+      <div className="grid gap-3">
+        {teams.map((team) => (
+          <div key={team.id} className="grid gap-2 rounded-xl bg-white p-3">
+            <div className="flex items-center justify-between gap-2">
+              <TeamPill team={team} />
+              <Button
+                tone={allIn[team.id] ? "red" : "white"}
+                className="min-h-[44px] text-sm"
+                disabled={revealed || allInUsed[team.id]}
+                onClick={() => setAllIn((value) => ({ ...value, [team.id]: !value[team.id] }))}
+              >
+                {allInUsed[team.id] ? "올인 사용함" : allIn[team.id] ? "올인!" : "올인 걸기"}
+              </Button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {[1, 2, 3].map((choice) => (
+                <Button
+                  key={choice}
+                  tone={picks[team.id] === choice ? "yellow" : "white"}
+                  className="min-h-[52px]"
+                  disabled={revealed}
+                  onClick={() => setPicks((value) => ({ ...value, [team.id]: choice }))}
+                >
+                  {choice}
+                </Button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {!revealed ? (
+        <Button tone="red" className="text-2xl" disabled={!allPicked} onClick={confirm}>
+          {allPicked ? "점수 계산" : "모든 팀 선택을 기록하세요"}
+        </Button>
+      ) : (
+        <>
+          <div className="grid gap-2 rounded-xl bg-[#FFF3BF] p-4">
+            {teams.map((team) => (
+              <div key={team.id} className="flex items-center justify-between text-lg font-black">
+                <span>
+                  {teamMark(team)} {team.name} · {prompt.choices[(picks[team.id] ?? 1) - 1]}
+                  {allIn[team.id] ? " (올인)" : ""}
+                </span>
+                <span>+{gains[team.id] ?? 0}점</span>
+              </div>
+            ))}
+          </div>
+          <Button
+            tone="blue"
+            className="text-2xl"
+            onClick={() => {
+              setIndex((value) => value + 1);
+              setPicks({});
+              setAllIn({});
+              setRevealed(false);
+            }}
+          >
+            {index + 1 >= ROUNDS ? "결과 보기" : "다음 문제"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** 열거 대결 — 30초 안에 정해진 개수를 대면 성공. 팀마다 아이·어른·공통 문항을 하나씩 받습니다. */
+function ListRaceRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const bands: ListChallenge["band"][] = ["child", "adult", "common"];
+  const bandLabel: Record<ListChallenge["band"], string> = {
+    child: "아이가 주도",
+    adult: "어른이 주도",
+    common: "다 같이",
+  };
+  const totalQuestions = teams.length * bands.length;
+
+  const challenges = useMemo(() => {
+    const picked: ListChallenge[] = [];
+    for (const band of bands) {
+      const pool = preferFresh(
+        LIST_CHALLENGES.filter((challenge) => challenge.band === band),
+        LIST_HISTORY_KEY,
+        (challenge) => challenge.id,
+      );
+      for (let seat = 0; seat < teams.length; seat += 1) picked.push(pool[seat % pool.length]);
+    }
+    return picked;
+  }, [teams.length]);
+
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"ready" | "listing" | "judged">("ready");
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const done = index >= totalQuestions;
+  const challenge = challenges[index % challenges.length];
+  const block = Math.floor(index / teams.length);
+  const team = teams[(index + block) % teams.length];
+  const markShown = useShownHistory(LIST_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+  const scoredRef = useRef(false);
+
+  useEffect(() => {
+    if (!done) markShown(challenge?.id);
+  }, [challenge, done, markShown]);
+
+  const timeUp = useCallback(() => setPhase("judged"), []);
+  const seconds = useDeadlineCountdown(phase === "listing", 30, timeUp, index);
+
+  const judge = (success: boolean) => {
+    if (scoredRef.current) return;
+    scoredRef.current = true;
+    if (success) {
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+      playCorrect();
+      correctConfetti();
+    } else {
+      playWrong();
+    }
+    setPhase("judged");
+  };
+
+  if (done) {
+    return <RoundResult game={game} type={type} title="열거 대결 결과" scores={scores} note="개수를 다 채우면 5점" />;
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {index + 1} / {totalQuestions} 문제 · {bandLabel[challenge.band]}
+      </p>
+      <div className="rounded-3xl bg-[#FFE66D] p-6">
+        <p className="text-3xl font-black sm:text-4xl">{challenge.category}</p>
+        <p className="mt-2 text-2xl font-black text-[#C92A2A]">{challenge.target}개!</p>
+      </div>
+      <p className="rounded-xl bg-[#F6FBFF] p-3 font-bold">판정 기준: {challenge.hint}</p>
+
+      {phase === "ready" && (
+        <Button tone="red" className="text-2xl" onClick={() => setPhase("listing")}>
+          30초 시작
+        </Button>
+      )}
+      {phase === "listing" && (
+        <>
+          <Countdown seconds={seconds} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button tone="green" className="text-2xl" onClick={() => judge(true)}>
+              {challenge.target}개 성공 +5
+            </Button>
+            <Button tone="white" className="text-2xl" onClick={() => judge(false)}>
+              포기
+            </Button>
+          </div>
+        </>
+      )}
+      {phase === "judged" && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button tone="green" className="text-xl" disabled={scoredRef.current} onClick={() => judge(true)}>
+              성공 +5
+            </Button>
+            <Button tone="red" className="text-xl" disabled={scoredRef.current} onClick={() => judge(false)}>
+              실패
+            </Button>
+          </div>
+          <Button
+            tone="blue"
+            className="text-2xl"
+            onClick={() => {
+              scoredRef.current = false;
+              setIndex((value) => value + 1);
+              setPhase("ready");
+            }}
+          >
+            {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** 한글 단어를 글자 단위로 뒤집습니다. "무지개" → "개지무" */
+function reverseHangul(word: string) {
+  return [...word.replace(/\s+/g, "")].reverse().join("");
+}
+
+/** 거꾸로 말하기 — 단어를 거꾸로 말하면 성공. 틀릴 때가 더 웃긴 라운드입니다. */
+function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const totalQuestions = teams.length * 4;
+
+  const words = useMemo(() => {
+    // 글자 수가 늘수록 어려워지므로 2·3·4·5글자를 블록으로 나눠 팀마다 같은 난이도를 줍니다.
+    const source = uniqueStrings([...SPEED_QUIZ_WORDS, ...SILENT_SHOUT_WORDS]).filter(
+      (word) =>
+        !/\s/.test(word) &&
+        /^[가-힣]+$/.test(word) &&
+        // "삐삐"처럼 거꾸로 해도 같은 단어는 문제가 성립하지 않습니다.
+        word !== reverseHangul(word),
+    );
+    const picked: string[] = [];
+    for (const length of [2, 3, 4, 5]) {
+      const pool = preferFresh(
+        source.filter((word) => word.length === length),
+        REVERSE_HISTORY_KEY,
+        (word) => word,
+      );
+      for (let seat = 0; seat < teams.length; seat += 1) {
+        if (pool.length) picked.push(pool[seat % pool.length]);
+      }
+    }
+    return picked;
+  }, [teams.length]);
+
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"ready" | "thinking" | "judged">("ready");
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const [showAnswer, setShowAnswer] = useState(false);
+  const done = index >= Math.min(totalQuestions, words.length);
+  const word = words[index % Math.max(1, words.length)];
+  const block = Math.floor(index / teams.length);
+  const team = teams[(index + block) % teams.length];
+  const markShown = useShownHistory(REVERSE_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+  const scoredRef = useRef(false);
+
+  useEffect(() => {
+    if (!done) markShown(word);
+  }, [done, markShown, word]);
+
+  const timeUp = useCallback(() => {
+    setPhase("judged");
+    setShowAnswer(true);
+  }, []);
+  const seconds = useDeadlineCountdown(phase === "thinking", 10, timeUp, index);
+
+  const judge = (success: boolean) => {
+    if (scoredRef.current) return;
+    scoredRef.current = true;
+    if (success) {
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+      playCorrect();
+      correctConfetti();
+    } else {
+      playWrong();
+    }
+    setShowAnswer(true);
+    setPhase("judged");
+  };
+
+  if (done) {
+    return <RoundResult game={game} type={type} title="거꾸로 말하기 결과" scores={scores} note="거꾸로 맞히면 5점" />;
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {index + 1} / {totalQuestions} 문제 · {word.length}글자
+      </p>
+      <div className="rounded-3xl bg-[#FFE66D] p-6 text-5xl font-black sm:text-7xl">{word}</div>
+      <p className="rounded-xl bg-[#F6FBFF] p-3 font-bold">이 단어를 거꾸로 말하세요. 10초 안에!</p>
+
+      {phase === "ready" && (
+        <Button tone="red" className="text-2xl" onClick={() => setPhase("thinking")}>
+          10초 시작
+        </Button>
+      )}
+      {phase === "thinking" && <Countdown seconds={seconds} />}
+
+      {phase !== "ready" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button tone="green" className="text-2xl" disabled={scoredRef.current} onClick={() => judge(true)}>
+            맞혔어요 +5
+          </Button>
+          <Button tone="red" className="text-2xl" disabled={scoredRef.current} onClick={() => judge(false)}>
+            틀렸어요
+          </Button>
+        </div>
+      )}
+
+      {showAnswer && (
+        <p className="rounded-xl bg-[#FFF3BF] p-4 text-3xl font-black">정답: {reverseHangul(word)}</p>
+      )}
+
+      {phase === "judged" && (
+        <Button
+          tone="blue"
+          className="text-2xl"
+          onClick={() => {
+            scoredRef.current = false;
+            setIndex((value) => value + 1);
+            setPhase("ready");
+            setShowAnswer(false);
+          }}
+        >
+          {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+        </Button>
+      )}
+    </section>
+  );
+}
+
 /** 새 라운드들이 같은 모양의 결과 화면을 쓰도록 묶었습니다. */
 function RoundResult({
   game,
@@ -2197,6 +2617,12 @@ export default function RoundPage() {
     body = <HumSongRound game={game} type={roundType} />;
   } else if (roundType === "trap_interview") {
     body = <TrapInterviewRound game={game} type={roundType} />;
+  } else if (roundType === "nunchi_allin") {
+    body = <NunchiAllInRound game={game} type={roundType} />;
+  } else if (roundType === "list_race") {
+    body = <ListRaceRound game={game} type={roundType} />;
+  } else if (roundType === "reverse_talk") {
+    body = <ReverseTalkRound game={game} type={roundType} />;
   } else if (roundType === "silent_shout") {
     body = <SilentShoutRound game={game} content={content} type={roundType} />;
   } else if (roundType === "charades") {

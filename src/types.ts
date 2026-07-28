@@ -8,6 +8,9 @@ export type RoundType =
   | "sequence_order"
   | "hum_song"
   | "trap_interview"
+  | "nunchi_allin"
+  | "list_race"
+  | "reverse_talk"
   | "silent_shout"
   | "charades"
   | "pool_finale";

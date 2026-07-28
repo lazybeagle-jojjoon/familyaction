@@ -95,6 +95,27 @@ export const ROUND_INFOS: RoundInfo[] = [
     tag: "말·몸",
   },
   {
+    type: "nunchi_allin",
+    icon: "🤝",
+    title: "눈치 올인",
+    description: "다른 팀과 안 겹치는 답을 골라야 점수를 받아요",
+    tag: "말·몸",
+  },
+  {
+    type: "list_race",
+    icon: "📝",
+    title: "열거 대결",
+    description: "30초 안에 정해진 개수만큼 대기",
+    tag: "말·몸",
+  },
+  {
+    type: "reverse_talk",
+    icon: "🔄",
+    title: "거꾸로 말하기",
+    description: "단어를 거꾸로 말하면 성공. 틀리면 더 웃겨요",
+    tag: "말·몸",
+  },
+  {
     type: "pool_finale",
     icon: "🏊",
     title: "수영장 보물찾기",
