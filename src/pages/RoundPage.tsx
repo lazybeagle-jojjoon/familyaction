@@ -860,12 +860,19 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
       </div>
       <p className="text-xl font-black">{index + 1} / {questionCount} 문제</p>
       <div className="rounded-3xl border-4 border-[#171721] bg-white p-6">
+        {/*
+          key를 문항마다 바꿔서 새 그림이 '처음부터 흐린 상태'로 그려지게 합니다.
+          같은 엘리먼트를 재사용하면 이전 문항의 선명한 상태에서 흐려지는 애니메이션이 재생돼
+          다음 그림이 0.7초 동안 먼저 보여 버립니다.
+        */}
         <img
+          key={item.id}
           src={item.image}
           alt={revealed ? item.name : "아직 공개되지 않은 흐릿한 그림"}
           draggable={false}
-          className="mx-auto h-48 w-48 select-none object-contain transition-all duration-700 sm:h-72 sm:w-72"
-          style={{ filter: `blur(${blurValues[stage]}px)` }}
+          className="mx-auto h-48 w-48 select-none object-contain transition-[filter] duration-700 sm:h-72 sm:w-72"
+          // 정답을 공개하면 그림도 선명하게 보여 줍니다. (정답 글자는 이미 나와 있어 추가로 새는 정보가 없음)
+          style={{ filter: `blur(${revealed ? 0 : blurValues[stage]}px)` }}
         />
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
