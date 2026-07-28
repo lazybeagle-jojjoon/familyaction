@@ -123,6 +123,13 @@ export const ROUND_INFOS: RoundInfo[] = [
     tag: "말·몸",
   },
   {
+    type: "stroke_draw",
+    icon: "✏️",
+    title: "열두 획 화백",
+    description: "글자 없이 12획으로 그려서 우리 팀이 맞히게 해요",
+    tag: "화면",
+  },
+  {
     type: "pool_finale",
     icon: "🏊",
     title: "수영장 보물찾기",

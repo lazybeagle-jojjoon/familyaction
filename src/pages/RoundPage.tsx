@@ -3,7 +3,9 @@ import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import Button from "../components/Button";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
+import StrokePad from "../components/StrokePad";
 import { BLUR_IMAGE_ITEMS, type BlurImageAsset } from "../data/blurImageItems";
+import { DRAWING_CARDS } from "../data/drawingCards";
 import { EMOJI_QUIZ_QUESTIONS, type EmojiQuizQuestion } from "../data/emojiQuizQuestions";
 import { FALLBACK_CONTENT } from "../data/fallbacks";
 import { LIE_DETECTOR_FACTS, type LieDetectorQuestion } from "../data/lieDetectorFacts";
@@ -74,6 +76,7 @@ const roundTypes: RoundType[] = [
   "list_race",
   "reverse_talk",
   "team_vault",
+  "stroke_draw",
   "silent_shout",
   "charades",
   "pool_finale",
@@ -87,6 +90,7 @@ const NUNCHI_HISTORY_KEY = "poolvilla_nunchi_recent";
 const LIST_HISTORY_KEY = "poolvilla_list_recent";
 const REVERSE_HISTORY_KEY = "poolvilla_reverse_recent";
 const VAULT_HISTORY_KEY = "poolvilla_vault_recent";
+const DRAWING_HISTORY_KEY = "poolvilla_drawing_recent";
 const NEW_ROUND_HISTORY_LIMIT = 60;
 
 function ensureList<T>(items: T[] | undefined, min = 1): T[] {
@@ -2575,6 +2579,134 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
   );
 }
 
+/**
+ * 열두 획 화백 — 글자·숫자 없이 12획 안에 그려서 팀이 맞히게 합니다.
+ * 그림 실력보다 "무엇을 그릴지" 고르는 감각이 중요해서 아이가 이길 때도 많습니다.
+ */
+function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const MAX_STROKES = 12;
+  const totalQuestions = teams.length * 3;
+  const drawerLabel = ["아이가 그리기", "어른이 그리기", "아무나 그리기"];
+
+  const cards = useMemo(() => {
+    const picked: typeof DRAWING_CARDS = [];
+    for (const tier of [1, 2, 3] as const) {
+      const pool = preferFresh(
+        DRAWING_CARDS.filter((card) => card.tier === tier),
+        DRAWING_HISTORY_KEY,
+        (card) => card.id,
+      );
+      for (let seat = 0; seat < teams.length; seat += 1) {
+        if (pool.length) picked.push(pool[seat % pool.length]);
+      }
+    }
+    return picked;
+  }, [teams.length]);
+
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"ready" | "drawing" | "judged">("ready");
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const [showCard, setShowCard] = useState(false);
+  const done = index >= Math.min(totalQuestions, cards.length);
+  const card = cards[index % Math.max(1, cards.length)];
+  const block = Math.floor(index / teams.length);
+  const team = teams[(index + block) % teams.length];
+  const markShown = useShownHistory(DRAWING_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+  const scoredRef = useRef(false);
+
+  useEffect(() => {
+    if (!done) markShown(card?.id);
+  }, [card, done, markShown]);
+
+  const timeUp = useCallback(() => setPhase("judged"), []);
+  const seconds = useDeadlineCountdown(phase === "drawing", 45, timeUp, index);
+
+  const judge = (success: boolean) => {
+    if (scoredRef.current) return;
+    scoredRef.current = true;
+    if (success) {
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+      playCorrect();
+      correctConfetti();
+    } else {
+      playWrong();
+    }
+    setPhase("judged");
+  };
+
+  if (done) {
+    return <RoundResult game={game} type={type} title="열두 획 화백 결과" scores={scores} note="맞히면 5점" />;
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {index + 1} / {totalQuestions} 문제 · {drawerLabel[block % drawerLabel.length]}
+      </p>
+      <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
+        그리는 사람만 카드를 봅니다. <b>글자와 숫자는 쓸 수 없고 12획까지만</b> 그릴 수 있어요.
+        같은 팀이 45초 안에 맞히면 5점입니다.
+      </p>
+
+      <div className="rounded-2xl border-4 border-[#171721] bg-white p-4 text-2xl font-black">
+        {showCard ? card.answer : "카드 숨김"}
+      </div>
+      <Button tone="yellow" disabled={phase !== "ready"} onClick={() => setShowCard((value) => !value)}>
+        {showCard ? "카드 숨기기" : "그리는 사람만 보기"}
+      </Button>
+
+      {phase === "ready" && (
+        <Button
+          tone="red"
+          className="text-2xl"
+          onClick={() => {
+            setShowCard(false);
+            setPhase("drawing");
+          }}
+        >
+          45초 그리기 시작
+        </Button>
+      )}
+
+      {phase !== "ready" && (
+        <>
+          {phase === "drawing" && <Countdown seconds={seconds} />}
+          {/* index를 key로 줘서 문항이 바뀌면 그림판이 깨끗하게 초기화됩니다. */}
+          <StrokePad key={index} maxStrokes={MAX_STROKES} disabled={phase === "judged"} />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button tone="green" className="text-2xl" disabled={scoredRef.current} onClick={() => judge(true)}>
+              맞혔어요 +5
+            </Button>
+            <Button tone="red" className="text-2xl" disabled={scoredRef.current} onClick={() => judge(false)}>
+              못 맞혔어요
+            </Button>
+          </div>
+        </>
+      )}
+
+      {phase === "judged" && (
+        <>
+          <p className="rounded-xl bg-[#FFF3BF] p-4 text-2xl font-black">정답: {card.answer}</p>
+          <Button
+            tone="blue"
+            className="text-2xl"
+            onClick={() => {
+              scoredRef.current = false;
+              setIndex((value) => value + 1);
+              setPhase("ready");
+              setShowCard(false);
+            }}
+          >
+            {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
 /** 새 라운드들이 같은 모양의 결과 화면을 쓰도록 묶었습니다. */
 function RoundResult({
   game,
@@ -2817,6 +2949,8 @@ export default function RoundPage() {
     body = <ReverseTalkRound game={game} type={roundType} />;
   } else if (roundType === "team_vault") {
     body = <VaultRound game={game} type={roundType} />;
+  } else if (roundType === "stroke_draw") {
+    body = <DrawingRound game={game} type={roundType} />;
   } else if (roundType === "silent_shout") {
     body = <SilentShoutRound game={game} content={content} type={roundType} />;
   } else if (roundType === "charades") {
