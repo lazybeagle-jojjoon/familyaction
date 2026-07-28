@@ -25,6 +25,7 @@ type EmojiContent = { questions?: EmojiQuizQuestion[] };
 type LieContent = { questions?: LieDetectorQuestion[] };
 
 const SPEED_QUIZ_SECONDS = 180;
+const POOL_FINALE_COINS = 30;
 const BLUR_HISTORY_KEY = "poolvilla_blur_recent_ids";
 const BLUR_HISTORY_LIMIT = 80;
 const SPEED_HISTORY_KEY = "poolvilla_speed_recent_words";
@@ -159,26 +160,86 @@ function useShownHistory(key: string, limit: number) {
 }
 
 function preferFresh<T>(items: T[], key: string, getId: (item: T) => string) {
-  const recentIds = recentKeySet(key);
+  // 이력은 최근 것이 앞에 오므로, 인덱스가 클수록 오래전에 쓴 문항입니다.
+  const recentOrder = new Map(loadRecentValues(key).map((value, index) => [normalizeName(value), index]));
   const fresh: T[] = [];
-  const recent: T[] = [];
+  const recent: { item: T; index: number }[] = [];
 
   for (const item of items) {
-    if (recentIds.has(normalizeName(getId(item)))) {
-      recent.push(item);
-    } else {
+    const index = recentOrder.get(normalizeName(getId(item)));
+    if (index === undefined) {
       fresh.push(item);
+    } else {
+      recent.push({ item, index });
     }
   }
 
-  return [...shuffle(fresh), ...shuffle(recent)];
+  // 풀이 전부 "최근"이 되어도 가장 오래전에 쓴 것부터 나오게 합니다.
+  recent.sort((left, right) => right.index - left.index);
+
+  return [...shuffle(fresh), ...recent.map((entry) => entry.item)];
+}
+
+/**
+ * setTimeout을 1초씩 이어붙이면 렌더가 밀릴 때마다 시간이 늘어납니다.
+ * 시작할 때 마감 시각을 정해두고 벽시계로 남은 시간을 계산합니다.
+ */
+function useDeadlineCountdown(
+  running: boolean,
+  totalSeconds: number,
+  onEnd: () => void,
+  // 문항이 바뀔 때처럼 running이 계속 true인 채로 다시 시작해야 하는 경우에 씁니다.
+  resetKey: unknown = null,
+) {
+  const [remaining, setRemaining] = useState(totalSeconds);
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
+
+  useEffect(() => {
+    if (!running) {
+      setRemaining(totalSeconds);
+      return;
+    }
+
+    const deadline = Date.now() + totalSeconds * 1000;
+    let ended = false;
+    let lastBeepAt = totalSeconds + 1;
+    setRemaining(totalSeconds);
+
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+      setRemaining(left);
+
+      if (left <= 5 && left > 0 && left < lastBeepAt) {
+        lastBeepAt = left;
+        playBeep();
+      }
+
+      if (left <= 0 && !ended) {
+        ended = true;
+        onEndRef.current();
+      }
+    };
+
+    const timer = window.setInterval(tick, 200);
+    return () => window.clearInterval(timer);
+  }, [running, totalSeconds, resetKey]);
+
+  return remaining;
 }
 
 function selectWordItems(content: unknown, fallbackType: RoundType, historyKey: string) {
   const generated = uniqueStrings(ensureList((content as WordsContent).words, 1));
   const fallback = uniqueStrings(ensureList((FALLBACK_CONTENT[fallbackType] as WordsContent).words, 1));
-  const source = generated.length >= 5 ? generated : uniqueStrings([...generated, ...fallback]);
-  return preferFresh(source.length ? source : fallback, historyKey, normalizeName);
+  // 생성이 성공해도 폴백을 버리지 않습니다. 몸으로말해요처럼 20개만 생성되는 라운드는
+  // 팀을 돌다 보면 덱이 먼저 떨어져서 같은 단어가 다시 나옵니다.
+  const source = uniqueStrings([...generated, ...fallback]);
+  const ordered = preferFresh(source.length ? source : fallback, historyKey, normalizeName);
+
+  // 새로 생성된 단어를 앞에 두되, 뒤에 폴백을 붙여 덱이 떨어지지 않게 합니다.
+  const generatedKeys = new Set(generated.map(normalizeName));
+  const isGenerated = (word: string) => generatedKeys.has(normalizeName(word));
+  return [...ordered.filter(isGenerated), ...ordered.filter((word) => !isGenerated(word))];
 }
 
 function findBlurAsset(item: { id?: string; name: string; image?: string; emoji?: string }) {
@@ -189,6 +250,36 @@ function findBlurAsset(item: { id?: string; name: string; image?: string; emoji?
     const names = [asset.id, asset.name, ...(asset.aliases ?? [])];
     return names.some((name) => normalizeName(name) === requested);
   });
+}
+
+/**
+ * 자산 풀이 음식·동물 쪽으로 크게 치우쳐 있어서, 그냥 섞으면 한 라운드가
+ * 과일과 아기동물로만 채워집니다. 카테고리를 번갈아 뽑아 골고루 나오게 합니다.
+ */
+function interleaveByCategory(assets: BlurImageAsset[]) {
+  const buckets = new Map<string, BlurImageAsset[]>();
+  for (const asset of assets) {
+    const bucket = buckets.get(asset.category) ?? [];
+    bucket.push(asset);
+    buckets.set(asset.category, bucket);
+  }
+
+  const order = shuffle([...buckets.keys()]);
+  const result: BlurImageAsset[] = [];
+  let picked = true;
+
+  while (picked) {
+    picked = false;
+    for (const category of order) {
+      const next = buckets.get(category)?.shift();
+      if (next) {
+        result.push(next);
+        picked = true;
+      }
+    }
+  }
+
+  return result;
 }
 
 function selectBlurItems(content: unknown, count: number) {
@@ -219,7 +310,7 @@ function selectBlurItems(content: unknown, count: number) {
     addItem(asset);
   }
 
-  for (const asset of shuffle(BLUR_IMAGE_ITEMS).filter(isFresh)) {
+  for (const asset of interleaveByCategory(shuffle(BLUR_IMAGE_ITEMS).filter(isFresh))) {
     addItem(asset);
   }
 
@@ -234,28 +325,55 @@ function selectBlurItems(content: unknown, count: number) {
   return selected.slice(0, count);
 }
 
+function isLieQuestion(value: unknown): value is LieDetectorQuestion {
+  if (!value || typeof value !== "object") return false;
+  const question = value as Partial<LieDetectorQuestion>;
+  return (
+    typeof question.fact === "string" &&
+    question.fact.trim().length > 0 &&
+    typeof question.isTrue === "boolean" &&
+    typeof question.explanation === "string"
+  );
+}
+
+/**
+ * 로컬 문제 풀은 진실 100 / 거짓 50이라, 그냥 뽑으면 "무조건 진실"만 외쳐도 3분의 2를 맞힙니다.
+ * 진실과 거짓을 반씩 뽑은 뒤 순서를 섞어 패턴도 보이지 않게 합니다.
+ */
 function selectLieQuestions(content: unknown, count: number) {
-  const generated = ensureList((content as LieContent).questions, 5);
-  const generatedQuestions = generated.length >= 5
-    ? preferFresh(generated, LIE_HISTORY_KEY, (question) => normalizeName(question.fact)).slice(
-        0,
-        Math.ceil(count / 2),
-      )
-    : [];
-  const fallbackQuestions = preferFresh(LIE_DETECTOR_FACTS, LIE_HISTORY_KEY, (question) => normalizeName(question.fact));
-  const selected: LieDetectorQuestion[] = [];
+  const generated = ensureList((content as LieContent).questions, 1).filter(isLieQuestion);
+  const generatedKeys = new Set(generated.map((question) => normalizeName(question.fact)));
+  const pool = [...generated, ...LIE_DETECTOR_FACTS];
+  const ordered = preferFresh(pool, LIE_HISTORY_KEY, (question) => normalizeName(question.fact));
+
+  const truths: LieDetectorQuestion[] = [];
+  const lies: LieDetectorQuestion[] = [];
   const seen = new Set<string>();
 
-  for (const question of [...generatedQuestions, ...fallbackQuestions]) {
+  // 생성된 문제를 먼저 쓰되, 각 그룹 안에서는 오래 안 나온 것부터 채웁니다.
+  const byGeneratedFirst = [
+    ...ordered.filter((question) => generatedKeys.has(normalizeName(question.fact))),
+    ...ordered.filter((question) => !generatedKeys.has(normalizeName(question.fact))),
+  ];
+
+  for (const question of byGeneratedFirst) {
     const key = normalizeName(question.fact);
     if (!key || seen.has(key)) continue;
-
-    selected.push(question);
     seen.add(key);
-    if (selected.length >= count) break;
+    (question.isTrue ? truths : lies).push(question);
   }
 
-  return selected;
+  const selected: LieDetectorQuestion[] = [];
+  const wantLies = Math.floor(count / 2);
+
+  while (selected.length < count && (truths.length || lies.length)) {
+    const needMoreLies = selected.filter((question) => !question.isTrue).length < wantLies;
+    const next = needMoreLies ? lies.shift() ?? truths.shift() : truths.shift() ?? lies.shift();
+    if (!next) break;
+    selected.push(next);
+  }
+
+  return shuffle(selected);
 }
 
 function selectSpeedWords(content: unknown) {
@@ -334,6 +452,8 @@ function formatCountdown(seconds: number) {
 function Countdown({ seconds, urgentAt = 5 }: { seconds: number; urgentAt?: number }) {
   return (
     <div
+      role="timer"
+      aria-label={`남은 시간 ${seconds}초`}
       className={`rounded-2xl border-4 border-[#171721] bg-white px-5 py-3 text-center text-5xl font-black sm:text-7xl ${
         seconds <= urgentAt ? "animate-pulse-red" : ""
       }`}
@@ -486,7 +606,6 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
   const [teamIndex, setTeamIndex] = useState(0);
   const [phase, setPhase] = useState<"ready" | "playing" | "done">("ready");
   const [wordIndex, setWordIndex] = useState(0);
-  const [seconds, setSeconds] = useState(SPEED_QUIZ_SECONDS);
   const [correct, setCorrect] = useState(0);
   const [rawScores, setRawScores] = useState<Record<string, number>>({});
   const [showResults, setShowResults] = useState(false);
@@ -501,21 +620,15 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
     if (phase === "playing") markShown(currentWord);
   }, [currentWord, markShown, phase]);
 
-  useEffect(() => {
-    if (phase !== "playing") return;
-    if (seconds <= 0) {
-      setPhase("done");
-      setRawScores((scores) => ({ ...scores, [currentTeam.id]: correctRef.current }));
-      return;
-    }
-    const timer = window.setTimeout(() => setSeconds((value) => value - 1), 1000);
-    if (seconds <= 5) playBeep();
-    return () => window.clearTimeout(timer);
-  }, [currentTeam.id, phase, seconds]);
+  const finishTurn = useCallback(() => {
+    setPhase("done");
+    setRawScores((scores) => ({ ...scores, [currentTeam.id]: correctRef.current }));
+  }, [currentTeam.id]);
+
+  const seconds = useDeadlineCountdown(phase === "playing", SPEED_QUIZ_SECONDS, finishTurn, teamIndex);
 
   const nextWord = () => setWordIndex((index) => (index + 1) % currentWords.length);
   const start = () => {
-    setSeconds(SPEED_QUIZ_SECONDS);
     setCorrect(0);
     correctRef.current = 0;
     setWordIndex(0);
@@ -689,7 +802,7 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
       <div className="rounded-3xl border-4 border-[#171721] bg-white p-6">
         <img
           src={item.image}
-          alt=""
+          alt={revealed ? item.name : "아직 공개되지 않은 흐릿한 그림"}
           draggable={false}
           className="mx-auto h-48 w-48 select-none object-contain transition-all duration-700 sm:h-72 sm:w-72"
           style={{ filter: `blur(${blurValues[stage]}px)` }}
@@ -720,7 +833,6 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
   const questions = useMemo(() => selectChosungQuestions(content), [content]);
   const totalQuestions = game.teams.length * 5;
   const [index, setIndex] = useState(0);
-  const [seconds, setSeconds] = useState(30);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
   const [answered, setAnswered] = useState(false);
@@ -733,21 +845,15 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
     if (!done) markShown(question?.answers[0]);
   }, [done, markShown, question]);
 
-  useEffect(() => {
-    if (done || answered) return;
-    if (seconds <= 0) {
-      setAnswered(true);
-      playWrong();
-      return;
-    }
-    const timer = window.setTimeout(() => setSeconds((value) => value - 1), 1000);
-    if (seconds <= 5) playBeep();
-    return () => window.clearTimeout(timer);
-  }, [answered, done, seconds]);
+  const timeUp = useCallback(() => {
+    setAnswered(true);
+    playWrong();
+  }, []);
+
+  const seconds = useDeadlineCountdown(!done && !answered, 30, timeUp, index);
 
   const next = () => {
     setIndex((value) => value + 1);
-    setSeconds(30);
     setRevealed(false);
     setAnswered(false);
   };
@@ -807,7 +913,14 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
         >
           오답
         </Button>
-        <Button tone="yellow" onClick={() => setRevealed(true)}>
+        <Button
+          tone="yellow"
+          onClick={() => {
+            // 답을 본 뒤에 점수를 줄 수 있으면 판정이 무너져서 채점을 함께 잠급니다.
+            setRevealed(true);
+            setAnswered(true);
+          }}
+        >
           정답 보기
         </Button>
         <Button tone="blue" onClick={next}>
@@ -874,7 +987,7 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
           <Button
             key={team.id}
             tone={team.color === "red" ? "red" : team.color === "blue" ? "blue" : "green"}
-            disabled={Boolean(awardedTeamId)}
+            disabled={Boolean(awardedTeamId) || revealed}
             onClick={() => {
               setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
               setAwardedTeamId(team.id);
@@ -887,9 +1000,11 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
           </Button>
         ))}
       </div>
-      {awardedTeamId && (
-        <p className="rounded-xl bg-[#D3F9D8] p-3 font-black text-[#2B8A3E]">
-          이 문제는 이미 점수가 들어갔어요. 다음 문제로 넘어가세요.
+      {(awardedTeamId || revealed) && (
+        <p className="rounded-xl bg-[#D3F9D8] p-3 font-black text-[#1B5E20]">
+          {awardedTeamId
+            ? "이 문제는 이미 점수가 들어갔어요. 다음 문제로 넘어가세요."
+            : "정답을 공개해서 이 문제는 점수 없이 넘어갑니다."}
         </p>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
@@ -919,9 +1034,10 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
   const targetCount = balancedQuestionCount(10, game.teams.length, LIE_DETECTOR_FACTS.length);
   const questions = useMemo(() => selectLieQuestions(content, targetCount), [content, targetCount]);
   const [index, setIndex] = useState(0);
-  const [seconds, setSeconds] = useState(10);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [feedback, setFeedback] = useState("");
+  // 진행자가 문제를 읽어줄 시간을 주고 시작합니다. (바로 카운트가 시작되면 첫 문제가 불리해요)
+  const [started, setStarted] = useState(false);
   const questionCount = Math.min(targetCount, questions.length);
   const done = index >= questionCount;
   const question = questions[index % questions.length];
@@ -932,17 +1048,12 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
     if (!done) markShown(question?.fact);
   }, [done, markShown, question]);
 
-  useEffect(() => {
-    if (done || feedback) return;
-    if (seconds <= 0) {
-      setFeedback(`시간 종료! 정답은 ${question.isTrue ? "진실" : "거짓"}. ${question.explanation}`);
-      playWrong();
-      return;
-    }
-    const timer = window.setTimeout(() => setSeconds((value) => value - 1), 1000);
-    if (seconds <= 5) playBeep();
-    return () => window.clearTimeout(timer);
-  }, [done, feedback, question.explanation, question.isTrue, seconds]);
+  const timeUp = useCallback(() => {
+    setFeedback(`시간 종료! 정답은 ${question.isTrue ? "진실" : "거짓"}. ${question.explanation}`);
+    playWrong();
+  }, [question]);
+
+  const seconds = useDeadlineCountdown(started && !done && !feedback, 10, timeUp, index);
 
   const answer = (choice: boolean) => {
     const isCorrect = choice === question.isTrue;
@@ -988,14 +1099,20 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
       <TeamPill team={team} active />
       <Countdown seconds={seconds} />
       <div className="rounded-3xl bg-white p-6 text-3xl font-black leading-tight sm:text-5xl">{question.fact}</div>
-      <div className="grid grid-cols-2 gap-3">
-        <Button tone="green" className="text-2xl" disabled={Boolean(feedback)} onClick={() => answer(true)}>
-          진실
+      {!started && !feedback ? (
+        <Button tone="red" className="text-2xl" onClick={() => setStarted(true)}>
+          문제 읽어주고 시작
         </Button>
-        <Button tone="red" className="text-2xl" disabled={Boolean(feedback)} onClick={() => answer(false)}>
-          거짓
-        </Button>
-      </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          <Button tone="green" className="text-2xl" disabled={Boolean(feedback)} onClick={() => answer(true)}>
+            진실
+          </Button>
+          <Button tone="red" className="text-2xl" disabled={Boolean(feedback)} onClick={() => answer(false)}>
+            거짓
+          </Button>
+        </div>
+      )}
       {feedback && (
         <>
           <p className="rounded-xl bg-[#FFF3BF] p-4 text-xl font-black">{feedback}</p>
@@ -1004,8 +1121,8 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
             className="text-2xl"
             onClick={() => {
               setIndex((value) => value + 1);
-              setSeconds(10);
               setFeedback("");
+              setStarted(false);
             }}
           >
             다음 문제
@@ -1029,8 +1146,9 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
   const markShown = useShownHistory(SILENT_HISTORY_KEY, WORD_HISTORY_LIMIT);
 
   useEffect(() => {
-    if (!done) markShown(currentWord);
-  }, [currentWord, done, markShown]);
+    // 숨긴 채 넘어간 단어는 실제로 낸 게 아니라 이력에 넣지 않습니다.
+    if (!done && showWord) markShown(currentWord);
+  }, [currentWord, done, markShown, showWord]);
 
   if (done) {
     return (
@@ -1122,7 +1240,6 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
   const [teamIndex, setTeamIndex] = useState(0);
   const [phase, setPhase] = useState<"ready" | "playing" | "done">("ready");
   const [wordIndex, setWordIndex] = useState(0);
-  const [seconds, setSeconds] = useState(60);
   const [correct, setCorrect] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showResults, setShowResults] = useState(false);
@@ -1136,17 +1253,12 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
     if (phase === "playing") markShown(currentWord);
   }, [currentWord, markShown, phase]);
 
-  useEffect(() => {
-    if (phase !== "playing") return;
-    if (seconds <= 0) {
-      setScores((value) => ({ ...value, [team.id]: correctRef.current * 5 }));
-      setPhase("done");
-      return;
-    }
-    const timer = window.setTimeout(() => setSeconds((value) => value - 1), 1000);
-    if (seconds <= 5) playBeep();
-    return () => window.clearTimeout(timer);
-  }, [phase, seconds, team.id]);
+  const finishTurn = useCallback(() => {
+    setScores((value) => ({ ...value, [team.id]: correctRef.current * 5 }));
+    setPhase("done");
+  }, [team.id]);
+
+  const seconds = useDeadlineCountdown(phase === "playing", 60, finishTurn, teamIndex);
 
   if (showResults) {
     return (
@@ -1174,7 +1286,6 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
   }
 
   const start = () => {
-    setSeconds(60);
     setCorrect(0);
     correctRef.current = 0;
     setPhase("playing");
@@ -1255,6 +1366,8 @@ function PoolFinaleRound({ game, type }: { game: GameState; type: RoundType }) {
   }, [running, seconds]);
 
   const awards = rankAward(game.teams, counts, [30, 20, 10]);
+  const totalPicked = game.teams.reduce((sum, team) => sum + (counts[team.id] ?? 0), 0);
+  const overCoinLimit = totalPicked > POOL_FINALE_COINS;
 
   return (
     <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
@@ -1284,15 +1397,35 @@ function PoolFinaleRound({ game, type }: { game: GameState; type: RoundType }) {
             <input
               type="number"
               min={0}
+              max={POOL_FINALE_COINS}
+              step={1}
               inputMode="numeric"
               value={counts[team.id] ?? ""}
-              onChange={(event) => setCounts((value) => ({ ...value, [team.id]: Number(event.target.value) }))}
+              onChange={(event) => {
+                const raw = event.target.value;
+                if (raw === "") {
+                  setCounts((value) => {
+                    const next = { ...value };
+                    delete next[team.id];
+                    return next;
+                  });
+                  return;
+                }
+                // 동전은 30개뿐이라 음수·소수·30 초과는 애초에 못 들어가게 막습니다.
+                const clamped = Math.max(0, Math.min(POOL_FINALE_COINS, Math.floor(Number(raw) || 0)));
+                setCounts((value) => ({ ...value, [team.id]: clamped }));
+              }}
               className="min-h-[60px] rounded-xl border-3 border-[#171721] px-4 text-2xl font-black outline-none focus:ring-4 focus:ring-[#FFE66D]"
             />
           </label>
         ))}
       </div>
-      <Button tone="blue" className="text-2xl" onClick={() => setShowResult(true)}>
+      {overCoinLimit && (
+        <p className="rounded-xl bg-[#FFE3E3] p-3 font-black text-[#C92A2A]">
+          팀별 합계가 {totalPicked}개예요. 동전은 {POOL_FINALE_COINS}개라 숫자를 다시 확인해주세요.
+        </p>
+      )}
+      <Button tone="blue" className="text-2xl" disabled={overCoinLimit} onClick={() => setShowResult(true)}>
         순위 점수 계산
       </Button>
       {showResult && (
@@ -1330,6 +1463,7 @@ export default function RoundPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [usedFallback, setUsedFallback] = useState(false);
+  const [offline, setOffline] = useState(false);
   const [modelUsed, setModelUsed] = useState("");
   const valid = roundTypes.includes(roundType);
   // 사회자가 기다리지 않고 백업 문제로 시작하면, 뒤늦게 도착한 응답이 화면을 덮지 않게 합니다.
@@ -1357,6 +1491,7 @@ export default function RoundPage() {
       if (!mounted || skippedRef.current) return;
       setContent(result.data);
       setUsedFallback(result.usedFallback);
+      setOffline(result.offline);
       setError(result.error);
       setModelUsed(result.model);
       setLoading(false);
@@ -1405,11 +1540,16 @@ export default function RoundPage() {
       <RoundHeader game={game} type={roundType} />
       {usedFallback && !loading && (
         <p className="mt-5 rounded-xl border-3 border-[#171721] bg-[#FFE3E3] p-3 text-center font-black text-[#C92A2A]">
-          ⚠️ Claude 호출 실패로 백업 문제를 사용 중입니다. {error}
+          ⚠️ Claude 호출 실패로 우리집 문제 세트로 진행합니다. {error}
         </p>
       )}
-      {!usedFallback && !loading && round.prompt && (
-        <p className="mt-5 rounded-xl border-3 border-[#171721] bg-[#D3F9D8] p-3 text-center font-black text-[#2B8A3E]">
+      {offline && !loading && round.prompt && (
+        <p className="mt-5 rounded-xl border-3 border-[#171721] bg-[#F6FBFF] p-3 text-center font-black text-[#1864AB]">
+          📚 우리집 문제 세트로 진행합니다. (API 없이 그대로 즐기면 돼요)
+        </p>
+      )}
+      {!usedFallback && !offline && !loading && round.prompt && (
+        <p className="mt-5 rounded-xl border-3 border-[#171721] bg-[#D3F9D8] p-3 text-center font-black text-[#1B5E20]">
           ✅ Claude가 새 문제를 생성했습니다. {modelUsed && `사용 모델: ${modelUsed}`}
         </p>
       )}

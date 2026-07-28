@@ -44,7 +44,7 @@ export default function LobbyPage() {
         <Link to="/" className="rounded-full bg-white px-4 py-2 text-sm font-black shadow">
           ← 처음으로
         </Link>
-        <span className="rounded-full bg-[#FF6B6B] px-4 py-2 text-sm font-black text-white">
+        <span className="rounded-full bg-[#FF6B6B] px-4 py-2 text-sm font-black text-[#171721]">
           메인 허브
         </span>
       </div>

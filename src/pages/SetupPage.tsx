@@ -37,11 +37,7 @@ export default function SetupPage() {
   );
 
   const startGame = () => {
-    if (!apiKey.trim()) {
-      setError("Claude 문제 생성을 위해 Anthropic API 키를 입력해주세요.");
-      return;
-    }
-
+    // API 키는 선택 사항입니다. 없으면 앱에 들어 있는 문제 세트로 전부 진행됩니다.
     saveApiKey(apiKey);
     const game = createGameState(teams);
     saveGameState(game);
@@ -86,8 +82,17 @@ export default function SetupPage() {
         </p>
 
         <div className="mt-6 grid gap-6">
+          <div className="rounded-xl border-3 border-[#171721] bg-[#F6FBFF] p-4 font-bold leading-7">
+            <p className="text-lg font-black">API 키는 넣지 않아도 됩니다</p>
+            <p className="mt-1 text-sm">
+              앱 안에 라운드별 문제가 넉넉히 들어 있어서, 키 없이도 모든 게임을 그대로 할 수 있어요.
+              키를 넣으면 라운드마다 Claude가 새 문제를 만들어 주지만 <b>Anthropic API 요금이 따로 청구</b>됩니다.
+              (Claude Pro·Max 구독과는 별개 요금이에요.)
+            </p>
+          </div>
+
           <label className="grid gap-2">
-            <span className="text-lg font-black">Anthropic API 키</span>
+            <span className="text-lg font-black">Anthropic API 키 (선택)</span>
             <input
               type="password"
               value={apiKey}
@@ -211,7 +216,7 @@ export default function SetupPage() {
           {error && <p className="rounded-xl bg-[#FFE3E3] p-3 text-center font-black text-[#C92A2A]">{error}</p>}
 
           <Button tone="red" className="text-2xl" onClick={startGame}>
-            게임 시작
+            {apiKey.trim() ? "게임 시작" : "API 없이 게임 시작"}
           </Button>
         </div>
       </section>

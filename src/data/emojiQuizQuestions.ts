@@ -65,6 +65,31 @@ export const EMOJI_QUIZ_QUESTIONS: EmojiQuizQuestion[] = [
   { emoji: "🐟🌊", answers: ["물 만난 물고기"], category: "속담" },
   { emoji: "🐓🥚", answers: ["닭이 먼저냐 달걀이 먼저냐"], category: "속담" },
   { emoji: "🐸🪨", answers: ["개구리 올챙이 적 생각 못 한다"], category: "속담" },
+
+  // 어른도 같이 맞히도록 부모 세대가 반가워할 노래·영화·캐릭터를 섞습니다.
+  { emoji: "🕺🐴🕶️", answers: ["강남스타일"], category: "노래" },
+  { emoji: "🌸🎸", answers: ["벚꽃엔딩", "벚꽃 엔딩"], category: "노래" },
+  { emoji: "🏢🎵", answers: ["아파트"], category: "노래" },
+  { emoji: "🧨💃", answers: ["다이너마이트"], category: "노래" },
+  { emoji: "✈️🏝️🎵", answers: ["여행을 떠나요"], category: "노래" },
+  { emoji: "❤️‍🩹🎵", answers: ["사랑을 했다"], category: "노래" },
+  { emoji: "🚢🧊💔", answers: ["타이타닉"], category: "영화" },
+  { emoji: "💙🌏🏹", answers: ["아바타"], category: "영화" },
+  { emoji: "🦖🏞️", answers: ["쥬라기공원", "쥬라기 공원"], category: "영화" },
+  { emoji: "🚀🕳️⏳", answers: ["인터스텔라"], category: "영화" },
+  { emoji: "🍗👮", answers: ["극한직업"], category: "영화" },
+  { emoji: "🎹💃🌆", answers: ["라라랜드", "라라 랜드"], category: "영화" },
+  { emoji: "💍🌋🧝", answers: ["반지의 제왕", "반지의제왕"], category: "영화" },
+  { emoji: "⭐⚔️🚀", answers: ["스타워즈"], category: "영화" },
+  { emoji: "⚖️👼", answers: ["신과함께", "신과 함께"], category: "영화" },
+  { emoji: "🦕❄️", answers: ["둘리", "아기공룡 둘리"], category: "캐릭터" },
+  { emoji: "🏀🔴🎌", answers: ["슬램덩크"], category: "캐릭터" },
+  { emoji: "🧽🍍", answers: ["스폰지밥"], category: "캐릭터" },
+  { emoji: "🐭🎩🧤", answers: ["미키마우스"], category: "캐릭터" },
+  { emoji: "🐶✏️🏠", answers: ["스누피"], category: "캐릭터" },
+  { emoji: "🌙💫👧", answers: ["세일러문"], category: "캐릭터" },
+  { emoji: "👨‍🦲🟡🍩", answers: ["심슨", "심슨 가족"], category: "캐릭터" },
+  { emoji: "🐻🍯", answers: ["곰돌이 푸", "곰돌이푸"], category: "캐릭터" },
 ];
 
 export const emojiQuizCandidateText = EMOJI_QUIZ_QUESTIONS.map(

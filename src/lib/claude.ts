@@ -91,18 +91,25 @@ async function requestClaudeJson(
       }),
     });
   } catch (error) {
+    window.clearTimeout(timer);
     if (error instanceof DOMException && error.name === "AbortError") {
       throw new Error(`[${candidate.id}] timeout_error: ${Math.round(timeoutMs / 1000)}초 안에 응답이 없었습니다`);
     }
     throw new Error(`[${candidate.id}] network_error: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  let data: ClaudeErrorPayload & { content?: { text?: string }[]; stop_reason?: string };
+  try {
+    // 헤더만 받고 본문이 멎는 경우가 있어서, 본문을 다 읽을 때까지 같은 타임아웃 안에 둡니다.
+    data = (await response.json()) as typeof data;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(`[${candidate.id}] timeout_error: 응답 본문을 받는 중 시간이 초과됐습니다`);
+    }
+    throw new Error(`[${candidate.id}] parse_error: 응답을 읽지 못했습니다`);
   } finally {
     window.clearTimeout(timer);
   }
-
-  const data = (await response.json()) as ClaudeErrorPayload & {
-    content?: { text?: string }[];
-    stop_reason?: string;
-  };
 
   if (!response.ok) {
     const message = data?.error?.message ?? "Claude API 호출에 실패했습니다";
@@ -159,10 +166,17 @@ export async function testClaudeConnection(apiKey: string) {
 
 export type RoundContentResult = {
   data: unknown;
+  /** API를 시도했지만 실패해서 우리집 문제 세트로 넘어간 경우 */
   usedFallback: boolean;
+  /** 애초에 API를 쓰지 않는 경우 (키 없음) — 이건 오류가 아닙니다 */
+  offline: boolean;
   error: string;
   model: string;
 };
+
+export function hasApiKey() {
+  return Boolean(localStorage.getItem("anthropic_api_key")?.trim());
+}
 
 function withAvoidList(prompt: string, avoid: string[]) {
   const trimmed = avoid.filter(Boolean).slice(0, 40);
@@ -188,17 +202,20 @@ export function generateRoundContent(type: RoundType, avoid: string[] = []): Pro
 
 async function requestRoundContent(type: RoundType, avoid: string[]): Promise<RoundContentResult> {
   const round = getRoundInfo(type);
-  if (!round?.prompt) {
-    return { data: FALLBACK_CONTENT[type], usedFallback: false, error: "", model: "" };
+
+  // API 키가 없으면 호출을 시도조차 하지 않습니다. 우리집 문제 세트만으로 전부 진행됩니다.
+  if (!round?.prompt || !hasApiKey()) {
+    return { data: FALLBACK_CONTENT[type], usedFallback: false, offline: true, error: "", model: "" };
   }
 
   try {
     const result = await generateContent(withAvoidList(round.prompt, avoid));
-    return { data: result.data, usedFallback: false, error: "", model: result.model };
+    return { data: result.data, usedFallback: false, offline: false, error: "", model: result.model };
   } catch (error) {
     return {
       data: FALLBACK_CONTENT[type],
       usedFallback: true,
+      offline: false,
       error: error instanceof Error ? error.message : "문제 생성에 실패했습니다",
       model: "",
     };
