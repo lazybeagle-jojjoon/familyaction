@@ -716,7 +716,7 @@ export const LIE_DETECTOR_EXTRA_FACTS: LieDetectorQuestion[] = [
     explanation: "다 자라면 대개 동쪽을 보고 멈춰요.",
   },
   {
-    fact: "사람은 하루에 침을 1리터 넘게 만든다",
+    fact: "사람은 하루에 침을 1리터쯤 만든다",
     isTrue: true,
     explanation: "음식을 부드럽게 하고 입안을 지켜 줘요.",
   },

@@ -16,6 +16,7 @@ import { playBeep, playCorrect, playWrong } from "../lib/audio";
 import { normalizeChosungQuestion, type ChosungQuestion } from "../lib/chosung";
 import { generateRoundContent } from "../lib/claude";
 import { correctConfetti } from "../lib/effects";
+import { loadPhotos } from "../lib/photoLibrary";
 import { rankAward } from "../lib/scoring";
 import { addRoundResult, loadGameState, saveGameState } from "../lib/storage";
 import { balancedQuestionCount, teamHex, teamMark } from "../lib/teams";
@@ -260,7 +261,7 @@ function findBlurAsset(item: { id?: string; name: string; image?: string; emoji?
   if (item.image) return item as BlurImageAsset;
 
   const requested = normalizeName(item.name);
-  return BLUR_IMAGE_ITEMS.find((asset) => {
+  return blurPool().find((asset) => {
     const names = [asset.id, asset.name, ...(asset.aliases ?? [])];
     return names.some((name) => normalizeName(name) === requested);
   });
@@ -296,7 +297,19 @@ function interleaveByCategory(assets: BlurImageAsset[]) {
   return result;
 }
 
+/** 진행자가 넣은 가족 사진을 기본 그림들과 함께 씁니다. */
+function blurPool(): BlurImageAsset[] {
+  const photos = loadPhotos().map<BlurImageAsset>((photo) => ({
+    id: `photo-${photo.id}`,
+    name: photo.name,
+    image: photo.image,
+    category: "우리 사진",
+  }));
+  return [...photos, ...BLUR_IMAGE_ITEMS];
+}
+
 function selectBlurItems(content: unknown, count: number) {
+  const pool = blurPool();
   const requestedItems = ensureList((content as BlurContent).items, 1);
   const selected: BlurImageAsset[] = [];
   const selectedIds = new Set<string>();
@@ -324,7 +337,7 @@ function selectBlurItems(content: unknown, count: number) {
     addItem(asset);
   }
 
-  for (const asset of interleaveByCategory(shuffle(BLUR_IMAGE_ITEMS).filter(isFresh))) {
+  for (const asset of interleaveByCategory(shuffle(pool).filter(isFresh))) {
     addItem(asset);
   }
 
@@ -332,7 +345,7 @@ function selectBlurItems(content: unknown, count: number) {
     addItem(asset);
   }
 
-  for (const asset of shuffle(BLUR_IMAGE_ITEMS)) {
+  for (const asset of shuffle(pool)) {
     addItem(asset);
   }
 
@@ -742,7 +755,7 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
 
 function BlurImageRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
   // 팀마다 같은 문제 수가 돌아가도록 팀 수의 배수로 맞춥니다. (3팀이면 8문제 → 9문제)
-  const questionCount = balancedQuestionCount(8, game.teams.length, BLUR_IMAGE_ITEMS.length);
+  const questionCount = balancedQuestionCount(8, game.teams.length, blurPool().length);
   const items = useMemo(() => selectBlurItems(content, questionCount), [content, questionCount]);
   const blurValues = [30, 22, 14, 6, 0];
   const [index, setIndex] = useState(0);
@@ -1411,10 +1424,12 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
   const hideOne = useCallback(() => setPhase("recall"), []);
   const seconds = useDeadlineCountdown(phase === "memorize", question?.seconds ?? 10, hideOne, index);
 
-  const shownTiles = useMemo(
-    () => (phase === "recall" || phase === "revealed" ? shuffle(question.tiles.filter((tile) => tile !== question.missing)) : question.tiles),
-    [phase, question],
+  // 정답을 공개할 때 타일이 또 섞이면 헷갈리므로, 하나 뺀 배치는 문항마다 한 번만 정합니다.
+  const remainingTiles = useMemo(
+    () => shuffle(question.tiles.filter((tile) => tile !== question.missing)),
+    [question],
   );
+  const shownTiles = phase === "ready" || phase === "memorize" ? question.tiles : remainingTiles;
 
   const next = () => {
     setIndex((value) => value + 1);
@@ -1850,10 +1865,11 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
 
       {phase !== "ready" && (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Button tone="green" className="text-xl" onClick={() => judge(true)}>
+          {/* 한 번 판정하면 양쪽 모두 잠급니다. 안 그러면 두 팀에 다 점수를 줄 수 있어요. */}
+          <Button tone="green" className="text-xl" disabled={phase === "judged"} onClick={() => judge(true)}>
             금지어 나왔다 · {matchup.attacker.name} +5
           </Button>
-          <Button tone="blue" className="text-xl" onClick={() => judge(false)}>
+          <Button tone="blue" className="text-xl" disabled={phase === "judged"} onClick={() => judge(false)}>
             버텼다 · {matchup.defender.name} +5
           </Button>
         </div>

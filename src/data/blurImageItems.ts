@@ -2,7 +2,7 @@ export interface BlurImageAsset {
   id: string;
   name: string;
   image: string;
-  category: "음식" | "동물" | "물건" | "놀이";
+  category: "음식" | "동물" | "물건" | "놀이" | "우리 사진";
   aliases?: string[];
 }
 

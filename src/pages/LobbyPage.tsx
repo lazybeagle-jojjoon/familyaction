@@ -61,6 +61,10 @@ export default function LobbyPage() {
           </Button>
         </div>
 
+        <Button tone="white" className="text-lg" onClick={() => navigate("/photos")}>
+          📷 우리 사진 넣기 (흐릿한 이미지에 섞여 나와요)
+        </Button>
+
         {showRounds && (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {ROUND_INFOS.map((round) => {
