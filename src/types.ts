@@ -11,6 +11,7 @@ export type RoundType =
   | "nunchi_allin"
   | "list_race"
   | "reverse_talk"
+  | "team_vault"
   | "silent_shout"
   | "charades"
   | "pool_finale";

@@ -16,10 +16,11 @@ import { SEQUENCE_CARDS } from "../data/sequenceCards";
 import { SILENT_SHOUT_WORDS } from "../data/silentShoutWords";
 import { SPEED_QUIZ_WORDS } from "../data/speedQuizWords";
 import { TRAP_CARDS } from "../data/trapCards";
+import { VAULT_CASES, type VaultClue } from "../data/vaultCases";
 import { playBeep, playCorrect, playWrong } from "../lib/audio";
 import { normalizeChosungQuestion, type ChosungQuestion } from "../lib/chosung";
 import { generateRoundContent } from "../lib/claude";
-import { correctConfetti } from "../lib/effects";
+import { correctConfetti, finaleConfetti } from "../lib/effects";
 import { loadPhotos } from "../lib/photoLibrary";
 import { rankAward } from "../lib/scoring";
 import { addRoundResult, loadGameState, saveGameState } from "../lib/storage";
@@ -72,6 +73,7 @@ const roundTypes: RoundType[] = [
   "nunchi_allin",
   "list_race",
   "reverse_talk",
+  "team_vault",
   "silent_shout",
   "charades",
   "pool_finale",
@@ -84,6 +86,7 @@ const TRAP_HISTORY_KEY = "poolvilla_trap_recent";
 const NUNCHI_HISTORY_KEY = "poolvilla_nunchi_recent";
 const LIST_HISTORY_KEY = "poolvilla_list_recent";
 const REVERSE_HISTORY_KEY = "poolvilla_reverse_recent";
+const VAULT_HISTORY_KEY = "poolvilla_vault_recent";
 const NEW_ROUND_HISTORY_LIMIT = 60;
 
 function ensureList<T>(items: T[] | undefined, min = 1): T[] {
@@ -2383,6 +2386,195 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
   );
 }
 
+/**
+ * 세 팀 금고 — 유일한 협동 라운드.
+ * 팀마다 단서를 하나씩 맡아 숫자를 얻고, 그 숫자를 합쳐야 금고가 열립니다.
+ * 자기 단서를 풀면 그 팀 +2, 금고가 열리면 전 팀 +3.
+ */
+function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const CASES = 3;
+  const audienceLabel: Record<VaultClue["audience"], string> = {
+    child: "아이 단서",
+    adult: "어른 단서",
+    together: "누구나 단서",
+  };
+
+  const cases = useMemo(
+    () => preferFresh(VAULT_CASES, VAULT_HISTORY_KEY, (item) => item.id).slice(0, CASES),
+    [],
+  );
+
+  const [caseIndex, setCaseIndex] = useState(0);
+  const [clueIndex, setClueIndex] = useState(0);
+  const [showClue, setShowClue] = useState(false);
+  const [solved, setSolved] = useState<boolean[]>([]);
+  const [entry, setEntry] = useState("");
+  const [opened, setOpened] = useState<null | boolean>(null);
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const done = caseIndex >= Math.min(CASES, cases.length);
+  const vault = cases[caseIndex % Math.max(1, cases.length)];
+  const markShown = useShownHistory(VAULT_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+
+  useEffect(() => {
+    if (!done) markShown(vault?.id);
+  }, [done, markShown, vault]);
+
+  // 금고마다 단서 담당을 한 칸씩 밀어, 세 판이면 모든 팀이 아이·어른·누구나 단서를 한 번씩 맡습니다.
+  const clues = useMemo(() => {
+    if (!vault) return [];
+    return teams.map((team, seat) => ({
+      team,
+      clue: vault.clues[(seat + caseIndex) % vault.clues.length],
+    }));
+  }, [caseIndex, teams, vault]);
+
+  const code = clues.map((entryItem) => entryItem.clue.digit).join("");
+  const allCluesHandled = clueIndex >= clues.length;
+
+  const markClue = (correct: boolean) => {
+    const team = clues[clueIndex]?.team;
+    if (correct && team) {
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 2 }));
+      playCorrect();
+    } else {
+      playWrong();
+    }
+    setSolved((value) => [...value, correct]);
+    setClueIndex((value) => value + 1);
+    setShowClue(false);
+  };
+
+  const tryOpen = () => {
+    const success = entry === code;
+    setOpened(success);
+    if (success) {
+      setScores((value) => {
+        const next = { ...value };
+        for (const team of teams) next[team.id] = (next[team.id] ?? 0) + 3;
+        return next;
+      });
+      playCorrect();
+      finaleConfetti("medium");
+    } else {
+      playWrong();
+    }
+  };
+
+  const nextCase = () => {
+    setCaseIndex((value) => value + 1);
+    setClueIndex(0);
+    setShowClue(false);
+    setSolved([]);
+    setEntry("");
+    setOpened(null);
+  };
+
+  if (done) {
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="세 팀 금고 결과"
+        scores={scores}
+        note="단서 성공 2점 · 금고 열면 전 팀 3점"
+      />
+    );
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <h2 className="rounded-xl bg-[#4ECDC4] p-4 text-2xl font-black">
+        {vault.theme} ({caseIndex + 1} / {Math.min(CASES, cases.length)})
+      </h2>
+      <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
+        팀마다 단서를 하나씩 맡습니다. 자기 단서를 풀면 그 팀이 2점,
+        모두의 숫자를 순서대로 이어 금고를 열면 <b>전 팀이 3점</b>씩 받아요. 이번 라운드는 다 같이 이기는 게임이에요.
+      </p>
+
+      {!allCluesHandled ? (
+        <>
+          <div className="flex items-center justify-center gap-2">
+            <TeamPill team={clues[clueIndex].team} active />
+            <span className="rounded-full bg-[#FFE66D] px-3 py-1 font-black">
+              {audienceLabel[clues[clueIndex].clue.audience]}
+            </span>
+          </div>
+          <p className="text-lg font-black">
+            단서 {clueIndex + 1} / {clues.length}
+          </p>
+          <div className="rounded-3xl border-4 border-[#171721] bg-white p-6 text-2xl font-black sm:text-3xl">
+            {showClue ? clues[clueIndex].clue.prompt : "단서 숨김"}
+          </div>
+          <Button tone="yellow" onClick={() => setShowClue((value) => !value)}>
+            {showClue ? "단서 숨기기" : "이 팀만 보기"}
+          </Button>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Button tone="green" className="text-xl" disabled={!showClue} onClick={() => markClue(true)}>
+              맞혔어요 +2
+            </Button>
+            <Button tone="red" className="text-xl" disabled={!showClue} onClick={() => markClue(false)}>
+              못 맞혔어요
+            </Button>
+          </div>
+          {showClue && (
+            <p className="rounded-xl bg-[#FFF3BF] p-3 font-black">
+              이 단서의 숫자: {clues[clueIndex].clue.digit}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <p className="rounded-xl bg-[#FFF3BF] p-4 text-lg font-black">
+            단서 결과: {solved.map((ok) => (ok ? "○" : "✕")).join(" ")} · 이제 숫자를 순서대로 이어 금고를 열어보세요
+          </p>
+          <div className="rounded-3xl border-4 border-[#171721] bg-white p-6 text-5xl font-black tracking-widest">
+            {entry.padEnd(clues.length, "_")}
+          </div>
+          {opened === null ? (
+            <>
+              <div className="grid grid-cols-5 gap-2">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 0].map((digit) => (
+                  <Button
+                    key={digit}
+                    tone="white"
+                    className="min-h-[52px] text-xl"
+                    disabled={entry.length >= clues.length}
+                    onClick={() => setEntry((value) => value + digit)}
+                  >
+                    {digit}
+                  </Button>
+                ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button tone="white" onClick={() => setEntry("")}>
+                  지우기
+                </Button>
+                <Button tone="red" className="text-xl" disabled={entry.length !== clues.length} onClick={tryOpen}>
+                  금고 열기
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p
+                className={`rounded-xl p-4 text-2xl font-black ${
+                  opened ? "bg-[#D3F9D8] text-[#1B5E20]" : "bg-[#FFE3E3] text-[#C92A2A]"
+                }`}
+              >
+                {opened ? `금고가 열렸어요! 전 팀 +3점 (코드 ${code})` : `아쉬워요. 정답 코드는 ${code}였어요`}
+              </p>
+              <Button tone="blue" className="text-2xl" onClick={nextCase}>
+                {caseIndex + 1 >= Math.min(CASES, cases.length) ? "결과 보기" : "다음 금고"}
+              </Button>
+            </>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 /** 새 라운드들이 같은 모양의 결과 화면을 쓰도록 묶었습니다. */
 function RoundResult({
   game,
@@ -2623,6 +2815,8 @@ export default function RoundPage() {
     body = <ListRaceRound game={game} type={roundType} />;
   } else if (roundType === "reverse_talk") {
     body = <ReverseTalkRound game={game} type={roundType} />;
+  } else if (roundType === "team_vault") {
+    body = <VaultRound game={game} type={roundType} />;
   } else if (roundType === "silent_shout") {
     body = <SilentShoutRound game={game} content={content} type={roundType} />;
   } else if (roundType === "charades") {

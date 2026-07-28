@@ -116,6 +116,13 @@ export const ROUND_INFOS: RoundInfo[] = [
     tag: "말·몸",
   },
   {
+    type: "team_vault",
+    icon: "🔐",
+    title: "세 팀 금고",
+    description: "팀마다 단서 하나씩. 숫자를 합쳐 다 같이 금고를 열어요",
+    tag: "말·몸",
+  },
+  {
     type: "pool_finale",
     icon: "🏊",
     title: "수영장 보물찾기",
