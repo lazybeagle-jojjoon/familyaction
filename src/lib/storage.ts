@@ -38,8 +38,26 @@ export function createGameState(teams: Team[]): GameState {
   };
 }
 
-export function addRoundResult(game: GameState, result: RoundResult): GameState {
+/**
+ * 같은 라운드를 다시 했을 때 점수를 "따로 더할지"(기본) "지난 기록을 바꿀지" 고를 수 있습니다.
+ * 교체를 고르면 직전 기록의 점수를 총점에서 빼고 새 결과로 대체합니다.
+ */
+export function addRoundResult(
+  game: GameState,
+  result: RoundResult,
+  replaceLast = false,
+): GameState {
+  const history = game.roundResults[result.roundType] ?? [];
   const scores = { ...game.scores };
+  const shouldReplace = replaceLast && history.length > 0;
+
+  if (shouldReplace) {
+    const previous = history[history.length - 1];
+    for (const [teamId, points] of Object.entries(previous.teamScores)) {
+      scores[teamId] = (scores[teamId] ?? 0) - points;
+    }
+  }
+
   for (const [teamId, points] of Object.entries(result.teamScores)) {
     scores[teamId] = (scores[teamId] ?? 0) + points;
   }
@@ -49,7 +67,7 @@ export function addRoundResult(game: GameState, result: RoundResult): GameState 
     scores,
     roundResults: {
       ...game.roundResults,
-      [result.roundType]: [...(game.roundResults[result.roundType] ?? []), result],
+      [result.roundType]: shouldReplace ? [...history.slice(0, -1), result] : [...history, result],
     },
     updatedAt: new Date().toISOString(),
   };

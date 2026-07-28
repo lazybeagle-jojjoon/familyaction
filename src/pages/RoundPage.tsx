@@ -405,6 +405,30 @@ function SaveRoundButton({
 }) {
   const navigate = useNavigate();
   const [confirm, setConfirm] = useState(false);
+  const playedCount = game.roundResults[result.roundType]?.length ?? 0;
+
+  const save = (replaceLast: boolean) => {
+    saveGameState(addRoundResult(game, result, replaceLast));
+    navigate("/lobby");
+  };
+
+  if (confirm && playedCount > 0) {
+    return (
+      <div className="grid gap-3">
+        <p className="rounded-xl bg-[#FFF3BF] p-3 text-center font-black">
+          이 라운드는 이미 {playedCount}번 했어요. 지난 점수를 바꿀지, 이번 점수를 따로 더할지 골라주세요.
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button tone="red" className="text-xl" onClick={() => save(true)}>
+            지난 기록 대신 넣기
+          </Button>
+          <Button tone="blue" className="text-xl" onClick={() => save(false)}>
+            점수 따로 더하기
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-3">
@@ -421,9 +445,7 @@ function SaveRoundButton({
             setConfirm(true);
             return;
           }
-          const next = addRoundResult(game, result);
-          saveGameState(next);
-          navigate("/lobby");
+          save(false);
         }}
       >
         {confirm ? "점수 확정하고 로비로" : children}
