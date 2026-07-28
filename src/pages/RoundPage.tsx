@@ -1452,7 +1452,14 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
         </>
       )}
 
-      {phase === "memorize" && <Countdown seconds={seconds} />}
+      {phase === "memorize" && (
+        <>
+          <Countdown seconds={seconds} />
+          <Button tone="white" onClick={hideOne}>
+            다 외웠어요 (바로 넘기기)
+          </Button>
+        </>
+      )}
 
       {(phase === "memorize" || phase === "recall" || phase === "revealed") && (
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
