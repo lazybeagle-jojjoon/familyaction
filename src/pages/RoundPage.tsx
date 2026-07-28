@@ -2310,47 +2310,62 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
   const teams = game.teams;
   const totalQuestions = teams.length * 4;
 
-  const words = useMemo(() => {
-    // 글자 수가 늘수록 어려워지므로 2·3·4·5글자를 블록으로 나눠 팀마다 같은 난이도를 줍니다.
+  // 두 글자 한 단어는 10초면 너무 쉬워서, 여러 단어를 묶어 한 문제가 최소 10글자가 되게 합니다.
+  const MIN_CHARS_BY_BLOCK = [10, 13, 16, 20];
+
+  const questions = useMemo(() => {
     const source = uniqueStrings([...SPEED_QUIZ_WORDS, ...SILENT_SHOUT_WORDS]).filter(
       (word) =>
         !/\s/.test(word) &&
         /^[가-힣]+$/.test(word) &&
+        word.length >= 2 &&
+        word.length <= 4 &&
         // "삐삐"처럼 거꾸로 해도 같은 단어는 문제가 성립하지 않습니다.
         word !== reverseHangul(word),
     );
-    const picked: string[] = [];
-    for (const length of [2, 3, 4, 5]) {
-      const pool = preferFresh(
-        source.filter((word) => word.length === length),
-        REVERSE_HISTORY_KEY,
-        (word) => word,
-      );
+    // 풀과 커서를 하나만 써서 라운드 전체에 같은 단어가 두 번 나오지 않게 합니다.
+    const pool = preferFresh(source, REVERSE_HISTORY_KEY, (word) => word);
+    let cursor = 0;
+
+    const built: string[][] = [];
+    for (const minChars of MIN_CHARS_BY_BLOCK) {
       for (let seat = 0; seat < teams.length; seat += 1) {
-        if (pool.length) picked.push(pool[seat % pool.length]);
+        const group: string[] = [];
+        let chars = 0;
+        while (chars < minChars && cursor < pool.length) {
+          const next = pool[cursor];
+          cursor += 1;
+          group.push(next);
+          chars += next.length;
+        }
+        if (group.length) built.push(group);
       }
     }
-    return picked;
+    return built;
   }, [teams.length]);
 
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<"ready" | "thinking" | "judged">("ready");
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showAnswer, setShowAnswer] = useState(false);
-  const done = index >= Math.min(totalQuestions, words.length);
-  const word = words[index % Math.max(1, words.length)];
+  const done = index >= Math.min(totalQuestions, questions.length);
+  const group = questions[index % Math.max(1, questions.length)] ?? [];
+  const totalChars = group.reduce((sum, word) => sum + word.length, 0);
+  // 글자 수에 맞춰 시간을 줍니다. 10글자면 20초, 20글자면 40초.
+  const limitSeconds = Math.max(20, totalChars * 2);
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
   const markShown = useShownHistory(REVERSE_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
   const scoredRef = useRef(false);
 
   useEffect(() => {
-    if (!done) markShown(word);
-  }, [done, markShown, word]);
+    if (done) return;
+    for (const word of group) markShown(word);
+  }, [done, group, markShown]);
 
   // 시간이 끝나도 정답은 아직 감춥니다. 정답을 본 뒤에 성공 처리하면 판정이 무너져요.
   const timeUp = useCallback(() => setPhase("judged"), []);
-  const seconds = useDeadlineCountdown(phase === "thinking", 10, timeUp, index);
+  const seconds = useDeadlineCountdown(phase === "thinking", limitSeconds, timeUp, index);
 
   const judge = (success: boolean) => {
     if (scoredRef.current) return;
@@ -2367,21 +2382,37 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
   };
 
   if (done) {
-    return <RoundResult game={game} type={type} title="거꾸로 말하기 결과" scores={scores} note="거꾸로 맞히면 5점" />;
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="거꾸로 말하기 결과"
+        scores={scores}
+        note="단어를 전부 거꾸로 말하면 5점"
+      />
+    );
   }
 
   return (
     <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
       <TeamPill team={team} active />
       <p className="text-xl font-black">
-        {index + 1} / {totalQuestions} 문제 · {word.length}글자
+        {index + 1} / {totalQuestions} 문제 · {group.length}단어 {totalChars}글자
       </p>
-      <div className="rounded-3xl bg-[#FFE66D] p-6 text-5xl font-black sm:text-7xl">{word}</div>
-      <p className="rounded-xl bg-[#F6FBFF] p-3 font-bold">이 단어를 거꾸로 말하세요. 10초 안에!</p>
+      <div className="grid gap-2 rounded-3xl bg-[#FFE66D] p-5 sm:grid-cols-2">
+        {group.map((word, position) => (
+          <div key={`${word}-${position}`} className="rounded-xl bg-white/70 p-3 text-3xl font-black sm:text-4xl">
+            {position + 1}. {word}
+          </div>
+        ))}
+      </div>
+      <p className="rounded-xl bg-[#F6FBFF] p-3 font-bold">
+        {group.length}개를 <b>순서대로 전부</b> 거꾸로 말하세요. 하나라도 틀리면 실패예요. {limitSeconds}초!
+      </p>
 
       {phase === "ready" && (
         <Button tone="red" className="text-2xl" onClick={() => setPhase("thinking")}>
-          10초 시작
+          {limitSeconds}초 시작
         </Button>
       )}
       {phase === "thinking" && <Countdown seconds={seconds} />}
@@ -2399,7 +2430,13 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
 
       {showAnswer && (
         <>
-          <p className="rounded-xl bg-[#FFF3BF] p-4 text-3xl font-black">정답: {reverseHangul(word)}</p>
+          <div className="grid gap-2 rounded-xl bg-[#FFF3BF] p-4 text-left sm:grid-cols-2">
+            {group.map((word, position) => (
+              <p key={`answer-${word}-${position}`} className="text-xl font-black">
+                {word} → <span className="text-[#C92A2A]">{reverseHangul(word)}</span>
+              </p>
+            ))}
+          </div>
           <Button
             tone="blue"
             className="text-2xl"
