@@ -634,6 +634,27 @@ function SaveRoundButton({
   );
 }
 
+/**
+ * 라운드 중간에 끊고 나갈 수 있게 해 줍니다.
+ * 단, 모든 팀이 같은 횟수를 마친 지점에서만 보여야 점수가 공평합니다.
+ * (3팀 12문제라면 3·6·9문제째를 끝낸 시점)
+ */
+function EarlyFinish({ ready, done, onFinish }: { ready: boolean; done: number; onFinish: () => void }) {
+  if (!ready) return null;
+
+  return (
+    <Button tone="white" className="text-base" onClick={onFinish}>
+      🏁 여기까지만 하고 점수 내기 (모든 팀 {done}번씩 완료)
+    </Button>
+  );
+}
+
+/** 모든 팀이 같은 횟수를 마쳤는지, 마쳤다면 몇 번씩인지 알려 줍니다. */
+function evenTurns(index: number, teamCount: number) {
+  const safeTeams = Math.max(1, teamCount);
+  return index > 0 && index % safeTeams === 0 ? index / safeTeams : 0;
+}
+
 function TeamPill({ team, active }: { team: Team; active?: boolean }) {
   return (
     <span
@@ -796,9 +817,10 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
   const [scored, setScored] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const item = items[index % items.length];
   const team = game.teams[index % game.teams.length];
-  const done = index >= Math.min(questionCount, items.length);
+  const done = stopped || index >= Math.min(questionCount, items.length);
   const markShown = useShownHistory(BLUR_HISTORY_KEY, BLUR_HISTORY_LIMIT);
 
   useEffect(() => {
@@ -859,6 +881,11 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
         <TeamPill team={team} active />
       </div>
       <p className="text-xl font-black">{index + 1} / {questionCount} 문제</p>
+      <EarlyFinish
+        ready={!revealed && evenTurns(index, game.teams.length) > 0}
+        done={evenTurns(index, game.teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <div className="rounded-3xl border-4 border-[#171721] bg-white p-6">
         {/*
           key를 문항마다 바꿔서 새 그림이 '처음부터 흐린 상태'로 그려지게 합니다.
@@ -903,7 +930,8 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
   const [answered, setAnswered] = useState(false);
-  const done = index >= totalQuestions;
+  const [stopped, setStopped] = useState(false);
+  const done = stopped || index >= totalQuestions;
   const question = questions[index % questions.length];
   const team = game.teams[Math.floor(index / 5)];
   const markShown = useShownHistory(CHOSUNG_HISTORY_KEY, CHOSUNG_HISTORY_LIMIT);
@@ -954,6 +982,11 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
     <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
       <TeamPill team={team} active />
       <p className="text-xl font-black">{team.name} {index % 5 + 1} / 5문제</p>
+      <EarlyFinish
+        ready={index > 0 && index % 5 === 0 && !revealed && !answered}
+        done={index / 5}
+        onFinish={() => setStopped(true)}
+      />
       <Countdown seconds={seconds} />
       <div className="rounded-3xl bg-[#4ECDC4] p-8 text-7xl font-black sm:text-9xl">{question.chosung}</div>
       <div className="grid gap-3 sm:grid-cols-4">
@@ -1008,9 +1041,10 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
   const [revealed, setRevealed] = useState(false);
   // 한 문제에 한 팀만 득점합니다. (여러 팀이 연달아 눌러 중복 득점하던 문제)
   const [awardedTeamId, setAwardedTeamId] = useState<string | null>(null);
+  const [stopped, setStopped] = useState(false);
   const questionCount = Math.min(10, questions.length);
   const question = questions[index % questions.length];
-  const done = index >= questionCount;
+  const done = stopped || index >= questionCount;
   const markShown = useShownHistory(EMOJI_HISTORY_KEY, EMOJI_HISTORY_LIMIT);
 
   useEffect(() => {
@@ -1048,6 +1082,11 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
         <span className="rounded-full bg-[#FFE66D] px-4 py-2 font-black">{question.category}</span>
         <span className="font-black">{index + 1} / {questionCount}</span>
       </div>
+      <EarlyFinish
+        ready={!revealed && !awardedTeamId && index > 0}
+        done={index}
+        onFinish={() => setStopped(true)}
+      />
       <div className="rounded-3xl bg-white p-8 text-7xl leading-tight sm:text-9xl">{question.emoji}</div>
       <div className="grid gap-3 sm:grid-cols-3">
         {game.teams.map((team) => (
@@ -1103,8 +1142,9 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
   const [feedback, setFeedback] = useState("");
   // 진행자가 문제를 읽어줄 시간을 주고 시작합니다. (바로 카운트가 시작되면 첫 문제가 불리해요)
   const [started, setStarted] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const questionCount = Math.min(targetCount, questions.length);
-  const done = index >= questionCount;
+  const done = stopped || index >= questionCount;
   const question = questions[index % questions.length];
   const team = game.teams[index % game.teams.length];
   const markShown = useShownHistory(LIE_HISTORY_KEY, LIE_HISTORY_LIMIT);
@@ -1163,6 +1203,11 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
     <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
       <TeamPill team={team} active />
       <Countdown seconds={seconds} />
+      <EarlyFinish
+        ready={!started && !feedback && evenTurns(index, game.teams.length) > 0}
+        done={evenTurns(index, game.teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <div className="rounded-3xl bg-white p-6 text-3xl font-black leading-tight sm:text-5xl">{question.fact}</div>
       {!started && !feedback ? (
         <Button tone="red" className="text-2xl" onClick={() => setStarted(true)}>
@@ -1204,8 +1249,9 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
   const [index, setIndex] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showWord, setShowWord] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const totalQuestions = game.teams.length * wordsPerTeam;
-  const done = index >= totalQuestions;
+  const done = stopped || index >= totalQuestions;
   const team = game.teams[index % game.teams.length];
   const currentWord = words[index % words.length];
   const markShown = useShownHistory(SILENT_HISTORY_KEY, WORD_HISTORY_LIMIT);
@@ -1267,6 +1313,11 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
       <div className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         헤드폰이나 음악으로 주변 소리를 막고, 첫 번째 사람에게만 단어를 보여주세요. 마지막 사람이 맞히면 +5점입니다.
       </div>
+      <EarlyFinish
+        ready={!showWord && evenTurns(index, game.teams.length) > 0}
+        done={evenTurns(index, game.teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <div className="rounded-3xl bg-[#FFE66D] p-8 text-5xl font-black sm:text-7xl">
         {showWord ? currentWord : "단어 숨김"}
       </div>
@@ -1448,9 +1499,10 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
 
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<"ready" | "memorize" | "recall" | "revealed">("ready");
+  const [stopped, setStopped] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [scored, setScored] = useState(false);
-  const done = index >= totalQuestions;
+  const done = stopped || index >= totalQuestions;
   const question = questions[index % questions.length];
   // 블록마다 시작 팀을 돌려서 어려운 문제가 같은 팀에 몰리지 않게 합니다.
   const block = Math.floor(index / teams.length);
@@ -1495,6 +1547,11 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
       <p className="text-xl font-black">
         {index + 1} / {totalQuestions} 문제 · 주제: {question.theme}
       </p>
+      <EarlyFinish
+        ready={phase === "ready" && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
 
       {phase === "ready" && (
         <>
@@ -1598,7 +1655,8 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
   const [arrangement, setArrangement] = useState<string[]>([]);
   const [picked, setPicked] = useState<number | null>(null);
   const [locked, setLocked] = useState(false);
-  const done = index >= Math.min(totalQuestions, cards.length);
+  const [stopped, setStopped] = useState(false);
+  const done = stopped || index >= Math.min(totalQuestions, cards.length);
   const card = cards[index % Math.max(1, cards.length)];
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
@@ -1681,6 +1739,11 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
         {index + 1} / {totalQuestions} 문제
       </p>
       <h2 className="rounded-xl bg-[#4ECDC4] p-4 text-2xl font-black">{card.prompt}</h2>
+      <EarlyFinish
+        ready={!locked && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <p className="font-bold text-[#4A4A5E]">두 칸을 차례로 눌러 자리를 바꾸세요.</p>
 
       <div className="grid gap-3">
@@ -1761,7 +1824,8 @@ function HumSongRound({ game, type }: { game: GameState; type: RoundType }) {
   const [phase, setPhase] = useState<"ready" | "singing" | "done">("ready");
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showTitle, setShowTitle] = useState(false);
-  const done = index >= totalQuestions;
+  const [stopped, setStopped] = useState(false);
+  const done = stopped || index >= totalQuestions;
   const song = songs[index % songs.length];
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
@@ -1790,6 +1854,11 @@ function HumSongRound({ game, type }: { game: GameState; type: RoundType }) {
       <p className="text-xl font-black">
         {index + 1} / {totalQuestions} 곡 · {bandLabel[song.band]}
       </p>
+      <EarlyFinish
+        ready={phase === "ready" && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <p className="rounded-xl bg-[#F6FBFF] p-4 font-bold leading-7">
         부를 사람만 화면을 보세요. 가사 없이 &ldquo;음음음&rdquo; 또는 &ldquo;라라라&rdquo;로만 부릅니다.
       </p>
@@ -1870,7 +1939,8 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
   const [phase, setPhase] = useState<"ready" | "interview" | "judged">("ready");
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showCard, setShowCard] = useState(false);
-  const done = index >= matchups.length;
+  const [stopped, setStopped] = useState(false);
+  const done = stopped || index >= matchups.length;
   const card = cards[index % Math.max(1, cards.length)];
   const matchup = matchups[index % matchups.length];
   const markShown = useShownHistory(TRAP_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
@@ -1925,6 +1995,11 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
       <p className="text-xl font-black">
         {index + 1} / {matchups.length} 대결
       </p>
+      <EarlyFinish
+        ready={phase === "ready" && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         공격팀만 화면을 봅니다. 30초 안에 상대가 금지어를 말하게 유도하세요.
         방어팀은 3초 안에 계속 대답해야 하고, 금지어를 말하면 집니다.
@@ -2040,7 +2115,8 @@ function NunchiAllInRound({ game, type }: { game: GameState; type: RoundType }) 
   const [allInUsed, setAllInUsed] = useState<Record<string, boolean>>({});
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
-  const done = index >= ROUNDS;
+  const [stopped, setStopped] = useState(false);
+  const done = stopped || index >= ROUNDS;
   const prompt = prompts[index % prompts.length];
   const markShown = useShownHistory(NUNCHI_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
 
@@ -2105,6 +2181,11 @@ function NunchiAllInRound({ game, type }: { game: GameState; type: RoundType }) 
       <p className="text-xl font-black">
         {index + 1} / {ROUNDS} 문제 · {deciderLabel[prompt.decider]}
       </p>
+      <EarlyFinish
+        ready={!revealed && index > 0}
+        done={index}
+        onFinish={() => setStopped(true)}
+      />
       <h2 className="rounded-xl bg-[#4ECDC4] p-4 text-2xl font-black">{prompt.prompt}</h2>
       <div className="grid gap-2 sm:grid-cols-3">
         {prompt.choices.map((choice, choiceIndex) => (
@@ -2212,7 +2293,8 @@ function ListRaceRound({ game, type }: { game: GameState; type: RoundType }) {
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<"ready" | "listing" | "judged">("ready");
   const [scores, setScores] = useState<Record<string, number>>({});
-  const done = index >= totalQuestions;
+  const [stopped, setStopped] = useState(false);
+  const done = stopped || index >= totalQuestions;
   const challenge = challenges[index % challenges.length];
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
@@ -2249,6 +2331,11 @@ function ListRaceRound({ game, type }: { game: GameState; type: RoundType }) {
       <p className="text-xl font-black">
         {index + 1} / {totalQuestions} 문제 · {bandLabel[challenge.band]}
       </p>
+      <EarlyFinish
+        ready={phase === "ready" && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <div className="rounded-3xl bg-[#FFE66D] p-6">
         <p className="text-3xl font-black sm:text-4xl">{challenge.category}</p>
         <p className="mt-2 text-2xl font-black text-[#C92A2A]">{challenge.target}개!</p>
@@ -2348,7 +2435,8 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
   const [phase, setPhase] = useState<"ready" | "thinking" | "judged">("ready");
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showAnswer, setShowAnswer] = useState(false);
-  const done = index >= Math.min(totalQuestions, questions.length);
+  const [stopped, setStopped] = useState(false);
+  const done = stopped || index >= Math.min(totalQuestions, questions.length);
   const group = questions[index % Math.max(1, questions.length)] ?? [];
   const totalChars = group.reduce((sum, word) => sum + word.length, 0);
   // 한 글자에 1초. 10글자면 10초, 22글자면 22초.
@@ -2399,6 +2487,11 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
       <p className="text-xl font-black">
         {index + 1} / {totalQuestions} 문제 · {group.length}단어 {totalChars}글자
       </p>
+      <EarlyFinish
+        ready={phase === "ready" && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <div className="grid gap-2 rounded-3xl bg-[#FFE66D] p-5 sm:grid-cols-2">
         {group.map((word, position) => (
           <div key={`${word}-${position}`} className="rounded-xl bg-white/70 p-3 text-3xl font-black sm:text-4xl">
@@ -2481,8 +2574,9 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
   const [solved, setSolved] = useState<boolean[]>([]);
   const [entry, setEntry] = useState("");
   const [opened, setOpened] = useState<null | boolean>(null);
+  const [stopped, setStopped] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
-  const done = caseIndex >= Math.min(CASES, cases.length);
+  const done = stopped || caseIndex >= Math.min(CASES, cases.length);
   const vault = cases[caseIndex % Math.max(1, cases.length)];
   const markShown = useShownHistory(VAULT_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
 
@@ -2558,6 +2652,11 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
       <h2 className="rounded-xl bg-[#4ECDC4] p-4 text-2xl font-black">
         {vault.theme} ({caseIndex + 1} / {Math.min(CASES, cases.length)})
       </h2>
+      <EarlyFinish
+        ready={caseIndex > 0 && clueIndex === 0}
+        done={caseIndex}
+        onFinish={() => setStopped(true)}
+      />
       <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         팀마다 단서를 하나씩 맡습니다. 자기 단서를 풀면 그 팀이 2점,
         모두의 숫자를 순서대로 이어 금고를 열면 <b>전 팀이 3점</b>씩 받아요. 이번 라운드는 다 같이 이기는 게임이에요.
@@ -2705,6 +2804,7 @@ function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
   const [showCard, setShowCard] = useState(false);
   const [resolved, setResolved] = useState(false);
   const done = index >= Math.min(totalQuestions, cards.length);
+  const [stopped, setStopped] = useState(false);
   const card = cards[index % Math.max(1, cards.length)];
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
@@ -2743,6 +2843,11 @@ function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
       <p className="text-xl font-black">
         {index + 1} / {totalQuestions} 문제 · {drawerLabel[block % drawerLabel.length]}
       </p>
+      <EarlyFinish
+        ready={phase === "ready" && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         그리는 사람만 카드를 봅니다. <b>글자와 숫자는 쓸 수 없고 12획까지만</b> 그릴 수 있어요.
         같은 팀이 45초 안에 맞히면 5점입니다.
@@ -2833,8 +2938,9 @@ function CargoRound({ game, type }: { game: GameState; type: RoundType }) {
   const [turn, setTurn] = useState(0);
   const [drawn, setDrawn] = useState<CargoCard[]>([]);
   const [settled, setSettled] = useState<null | { total: number; busted: boolean; points: number }>(null);
+  const [stopped, setStopped] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
-  const done = turn >= totalTurns;
+  const done = stopped || turn >= totalTurns;
   // 1차는 A→B→C, 2차는 C→B→A 순서로 돌아 마지막 순서의 이점을 없앱니다.
   const trip = Math.floor(turn / teams.length);
   const seat = turn % teams.length;
@@ -2897,6 +3003,11 @@ function CargoRound({ game, type }: { game: GameState; type: RoundType }) {
       <p className="text-xl font-black">
         {trip + 1}번째 여행 · {turn + 1} / {totalTurns}
       </p>
+      <EarlyFinish
+        ready={!settled && drawn.length === 0 && evenTurns(turn, teams.length) > 0}
+        done={evenTurns(turn, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         짐을 실을 때마다 무게가 더해집니다. 합계 <b>6을 넘기면 0점</b>,
         5~6이면 3점, 3~4면 2점, 1~2면 1점이에요. 욕심낼지 지금 출발할지 팀이 정하세요.
@@ -2975,8 +3086,9 @@ function OddGridRound({ game, type }: { game: GameState; type: RoundType }) {
   const [index, setIndex] = useState(0);
   const [tries, setTries] = useState(0);
   const [finished, setFinished] = useState(false);
+  const [stopped, setStopped] = useState(false);
   const [scores, setScores] = useState<Record<string, number>>({});
-  const done = index >= totalQuestions;
+  const done = stopped || index >= totalQuestions;
   const puzzle = puzzles[index % puzzles.length];
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
@@ -3019,6 +3131,11 @@ function OddGridRound({ game, type }: { game: GameState; type: RoundType }) {
       <p className="text-xl font-black">
         {index + 1} / {totalQuestions} 문제 · 난이도 {block + 1}
       </p>
+      <EarlyFinish
+        ready={!finished && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <h2 className="rounded-xl bg-[#4ECDC4] p-4 text-xl font-black">{puzzle.rule}</h2>
       <p className="font-black">
         {finished ? "정답 위치를 확인하세요" : `남은 기회 ${Math.max(0, 2 - tries)}번`}
@@ -3093,13 +3210,14 @@ function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
   const [index, setIndex] = useState(0);
   const [phase, setPhase] = useState<"ready" | "thinking" | "judged">("ready");
   const [scores, setScores] = useState<Record<string, number>>({});
-  const done = index >= Math.min(totalQuestions, cards.length);
+  const [resolved, setResolved] = useState(false);
+  const [stopped, setStopped] = useState(false);
+  const done = stopped || index >= Math.min(totalQuestions, cards.length);
   const card = cards[index % Math.max(1, cards.length)];
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
   const markShown = useShownHistory(HOMONYM_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
   const scoredRef = useRef(false);
-  const [resolved, setResolved] = useState(false);
 
   useEffect(() => {
     if (!done) markShown(card?.id);
@@ -3141,6 +3259,11 @@ function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
         {index + 1} / {totalQuestions} 문제
       </p>
       <div className="rounded-3xl bg-[#FFE66D] p-6 text-5xl font-black sm:text-7xl">{card.word}</div>
+      <EarlyFinish
+        ready={phase === "ready" && evenTurns(index, teams.length) > 0}
+        done={evenTurns(index, teams.length)}
+        onFinish={() => setStopped(true)}
+      />
       <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         이 단어를 <b>서로 다른 뜻</b>으로 쓴 문장을 두 개 만들어 보세요.
         어른이 하나, 아이가 하나씩 말하면 좋아요. 25초!
