@@ -2351,8 +2351,8 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
   const done = index >= Math.min(totalQuestions, questions.length);
   const group = questions[index % Math.max(1, questions.length)] ?? [];
   const totalChars = group.reduce((sum, word) => sum + word.length, 0);
-  // 글자 수에 맞춰 시간을 줍니다. 10글자면 20초, 20글자면 40초.
-  const limitSeconds = Math.max(20, totalChars * 2);
+  // 한 글자에 1초. 10글자면 10초, 22글자면 22초.
+  const limitSeconds = Math.max(10, totalChars);
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
   const markShown = useShownHistory(REVERSE_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
