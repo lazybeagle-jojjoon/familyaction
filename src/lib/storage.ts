@@ -61,14 +61,17 @@ export function addRoundResult(
       ? { ...result, playedAt: new Date(new Date(latestSaved).getTime() + 1).toISOString() }
       : result;
 
-  if (shouldReplace) {
-    const previous = history[history.length - 1];
-    for (const [teamId, points] of Object.entries(previous.teamScores)) {
+  const replacedEntry = shouldReplace ? history[history.length - 1] : undefined;
+  if (replacedEntry) {
+    for (const [teamId, points] of Object.entries(replacedEntry.teamScores)) {
       scores[teamId] = (scores[teamId] ?? 0) - points;
     }
   }
 
-  for (const [teamId, points] of Object.entries(stamped.teamScores)) {
+  // 밀어낸 기록을 안에 품고 있어야 '마지막 결과 취소'가 원래 점수로 되돌릴 수 있습니다.
+  const saved: RoundResult = replacedEntry ? { ...stamped, replaced: replacedEntry } : stamped;
+
+  for (const [teamId, points] of Object.entries(saved.teamScores)) {
     scores[teamId] = (scores[teamId] ?? 0) + points;
   }
 
@@ -77,7 +80,7 @@ export function addRoundResult(
     scores,
     roundResults: {
       ...game.roundResults,
-      [stamped.roundType]: shouldReplace ? [...history.slice(0, -1), stamped] : [...history, stamped],
+      [saved.roundType]: shouldReplace ? [...history.slice(0, -1), saved] : [...history, saved],
     },
     updatedAt: new Date().toISOString(),
   };
@@ -105,7 +108,16 @@ export function undoLastRoundResult(game: GameState): GameState | null {
     scores[teamId] = (scores[teamId] ?? 0) - points;
   }
 
-  const remaining = (game.roundResults[latest.roundType] ?? []).slice(0, -1);
+  // 교체로 밀어냈던 기록이 있으면 그 점수와 기록을 그대로 되살립니다.
+  const restored = latest.result.replaced;
+  if (restored) {
+    for (const [teamId, points] of Object.entries(restored.teamScores)) {
+      scores[teamId] = (scores[teamId] ?? 0) + points;
+    }
+  }
+
+  const kept = (game.roundResults[latest.roundType] ?? []).slice(0, -1);
+  const remaining = restored ? [...kept, restored] : kept;
   const roundResults = { ...game.roundResults };
   if (remaining.length) {
     roundResults[latest.roundType] = remaining;

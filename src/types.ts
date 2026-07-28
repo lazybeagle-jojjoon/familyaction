@@ -34,6 +34,8 @@ export interface RoundResult {
   playedAt: string;
   teamScores: Record<string, number>;
   note: string;
+  /** '지난 기록 대신 넣기'로 밀어낸 결과. 되돌릴 때 이 점수를 되살립니다. */
+  replaced?: RoundResult;
 }
 
 export interface GameState {

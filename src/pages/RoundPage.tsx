@@ -2006,13 +2006,26 @@ function NunchiAllInRound({ game, type }: { game: GameState; type: RoundType }) 
   const prompts = useMemo(() => {
     // 결정자를 아이·어른·같이 각 2번씩 고정해 한쪽만 계속 정하지 않게 합니다.
     const plan: NunchiPrompt["decider"][] = ["child", "adult", "together", "adult", "together", "child"];
-    return plan.map((decider, slot) => {
-      const pool = preferFresh(
-        NUNCHI_PROMPTS.filter((prompt) => prompt.decider === decider),
-        NUNCHI_HISTORY_KEY,
-        (prompt) => prompt.id,
-      );
-      return pool[Math.floor(slot / 3) % Math.max(1, pool.length)];
+    // 결정자별 풀은 한 번만 만들고 커서로 하나씩 꺼냅니다. 슬롯마다 다시 뽑으면 같은 문항이 또 나와요.
+    const pools = new Map<NunchiPrompt["decider"], NunchiPrompt[]>();
+    const cursor = new Map<NunchiPrompt["decider"], number>();
+
+    return plan.map((decider) => {
+      if (!pools.has(decider)) {
+        pools.set(
+          decider,
+          preferFresh(
+            NUNCHI_PROMPTS.filter((prompt) => prompt.decider === decider),
+            NUNCHI_HISTORY_KEY,
+            (prompt) => prompt.id,
+          ),
+        );
+        cursor.set(decider, 0);
+      }
+      const pool = pools.get(decider) ?? [];
+      const at = cursor.get(decider) ?? 0;
+      cursor.set(decider, at + 1);
+      return pool[at % Math.max(1, pool.length)];
     });
   }, []);
 
@@ -2045,7 +2058,9 @@ function NunchiAllInRound({ game, type }: { game: GameState; type: RoundType }) 
 
     for (const team of teams) {
       const shared = counts.get(picks[team.id]) ?? 1;
-      const base = shared === 1 ? (counts.size === teams.length ? 2 : 3) : 0;
+      // 세 팀 이상에서 "모두 다름"은 2점, 혼자만 다른 답이면 3점.
+      // 두 팀에서는 다르게 고른 순간 서로 혼자이므로 3점으로 맞춰 상한을 통일합니다.
+      const base = shared === 1 ? (teams.length >= 3 && counts.size === teams.length ? 2 : 3) : 0;
       result[team.id] = allIn[team.id] ? base * 2 : base;
     }
 
@@ -2420,6 +2435,7 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
   const [caseIndex, setCaseIndex] = useState(0);
   const [clueIndex, setClueIndex] = useState(0);
   const [showClue, setShowClue] = useState(false);
+  const [revealedDigit, setRevealedDigit] = useState<string | null>(null);
   const [solved, setSolved] = useState<boolean[]>([]);
   const [entry, setEntry] = useState("");
   const [opened, setOpened] = useState<null | boolean>(null);
@@ -2445,16 +2461,16 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
   const allCluesHandled = clueIndex >= clues.length;
 
   const markClue = (correct: boolean) => {
-    const team = clues[clueIndex]?.team;
-    if (correct && team) {
-      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 2 }));
+    const entry = clues[clueIndex];
+    if (correct && entry) {
+      setScores((value) => ({ ...value, [entry.team.id]: (value[entry.team.id] ?? 0) + 2 }));
       playCorrect();
     } else {
       playWrong();
     }
     setSolved((value) => [...value, correct]);
-    setClueIndex((value) => value + 1);
-    setShowClue(false);
+    // 판정한 뒤에 숫자를 알려 줍니다. 못 맞혔어도 금고는 같이 열어야 하니까요.
+    setRevealedDigit(entry?.clue.digit ?? null);
   };
 
   const tryOpen = () => {
@@ -2477,6 +2493,7 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
     setCaseIndex((value) => value + 1);
     setClueIndex(0);
     setShowClue(false);
+    setRevealedDigit(null);
     setSolved([]);
     setEntry("");
     setOpened(null);
@@ -2518,21 +2535,49 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
           <div className="rounded-3xl border-4 border-[#171721] bg-white p-6 text-2xl font-black sm:text-3xl">
             {showClue ? clues[clueIndex].clue.prompt : "단서 숨김"}
           </div>
-          <Button tone="yellow" onClick={() => setShowClue((value) => !value)}>
-            {showClue ? "단서 숨기기" : "이 팀만 보기"}
-          </Button>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Button tone="green" className="text-xl" disabled={!showClue} onClick={() => markClue(true)}>
-              맞혔어요 +2
-            </Button>
-            <Button tone="red" className="text-xl" disabled={!showClue} onClick={() => markClue(false)}>
-              못 맞혔어요
-            </Button>
-          </div>
-          {showClue && (
-            <p className="rounded-xl bg-[#FFF3BF] p-3 font-black">
-              이 단서의 숫자: {clues[clueIndex].clue.digit}
-            </p>
+
+          {revealedDigit === null ? (
+            <>
+              <Button tone="yellow" onClick={() => setShowClue((value) => !value)}>
+                {showClue ? "단서 숨기기" : "이 팀만 보기"}
+              </Button>
+              {/* 답을 맞혔는지 먼저 정하고 나서 숫자를 공개합니다. 같이 보여주면 읽기만 해도 점수를 받아요. */}
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Button
+                  tone="green"
+                  className="text-xl"
+                  disabled={!showClue}
+                  onClick={() => markClue(true)}
+                >
+                  맞혔어요 +2
+                </Button>
+                <Button
+                  tone="red"
+                  className="text-xl"
+                  disabled={!showClue}
+                  onClick={() => markClue(false)}
+                >
+                  못 맞혔어요
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="rounded-xl bg-[#FFF3BF] p-4 text-2xl font-black">
+                이 단서의 숫자: {revealedDigit}
+              </p>
+              <Button
+                tone="blue"
+                className="text-2xl"
+                onClick={() => {
+                  setRevealedDigit(null);
+                  setClueIndex((value) => value + 1);
+                  setShowClue(false);
+                }}
+              >
+                {clueIndex + 1 >= clues.length ? "금고 열기로" : "다음 단서"}
+              </Button>
+            </>
           )}
         </>
       ) : (
@@ -2910,7 +2955,8 @@ function OddGridRound({ game, type }: { game: GameState; type: RoundType }) {
     const nextTries = tries + 1;
     setTries(nextTries);
     playWrong();
-    if (nextTries >= 3) setFinished(true);
+    // 화면에 "남은 기회 2번"이라고 적혀 있으니 두 번 틀리면 끝냅니다.
+    if (nextTries >= 2) setFinished(true);
   };
 
   if (done) {
