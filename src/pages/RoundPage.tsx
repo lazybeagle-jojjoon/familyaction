@@ -1839,11 +1839,14 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
   // 2팀은 조합이 두 개뿐이라 한 바퀴 더 돌려서, 팀 수와 상관없이 공격 2회·방어 2회로 맞춥니다.
   const matchups = useMemo(() => {
     const list: { attacker: Team; defender: Team }[] = [];
-    for (let step = 1; step < Math.max(2, teams.length); step += 1) {
-      const gap = ((step - 1) % Math.max(1, teams.length - 1)) + 1;
+    // 팀이 몇이든 공격 2회·방어 2회가 되도록 항상 두 바퀴를 돕니다.
+    // 3팀은 상대를 바꿔 가며(A→B, A→C), 2팀은 같은 상대와 두 번 붙습니다.
+    const blocks = 2;
+    for (let block = 0; block < blocks; block += 1) {
+      const gap = (block % Math.max(1, teams.length - 1)) + 1;
       for (let seat = 0; seat < teams.length; seat += 1) {
         // 블록마다 첫 공격팀을 한 칸씩 밀어 같은 팀이 매번 먼저 시작하지 않게 합니다.
-        const attackerSeat = (seat + step - 1) % teams.length;
+        const attackerSeat = (seat + block) % teams.length;
         list.push({ attacker: teams[attackerSeat], defender: teams[(attackerSeat + gap) % teams.length] });
       }
     }
@@ -2069,7 +2072,7 @@ function NunchiAllInRound({ game, type }: { game: GameState; type: RoundType }) 
         type={type}
         title="눈치 올인 결과"
         scores={scores}
-        note="혼자 고르면 3점, 셋 다 갈리면 2점씩, 올인은 두 배"
+        note="다른 팀과 안 겹치면 2~3점, 겹치면 0점, 올인은 두 배"
       />
     );
   }
@@ -2089,6 +2092,7 @@ function NunchiAllInRound({ game, type }: { game: GameState; type: RoundType }) 
       </div>
       <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         팀끼리 조용히 정한 뒤, 셋 세면 손가락으로 동시에 펴서 공개하세요. 그다음 진행자가 아래에 기록합니다.
+        <b>다른 팀과 겹치면 0점</b>이고, 혼자만 고른 답이면 3점(모두 다르면 2점씩)이에요.
         올인은 팀마다 한 번, 그 문제 점수가 두 배가 됩니다.
       </p>
 
