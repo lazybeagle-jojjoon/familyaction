@@ -11,6 +11,7 @@ export default function LobbyPage() {
   const navigate = useNavigate();
   const [game, setGame] = useState<GameState | null>(() => loadGameState());
   const [showRounds, setShowRounds] = useState(true);
+  const [filter, setFilter] = useState<"all" | "화면" | "말·몸" | "new">("all");
 
   useEffect(() => {
     if (!game) navigate("/setup", { replace: true });
@@ -35,6 +36,13 @@ export default function LobbyPage() {
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
   }, []);
+
+  const visibleRounds = useMemo(() => {
+    if (!game) return [];
+    if (filter === "new") return ROUND_INFOS.filter((round) => !(game.roundResults[round.type]?.length ?? 0));
+    if (filter === "all") return ROUND_INFOS;
+    return ROUND_INFOS.filter((round) => round.tag === filter);
+  }, [filter, game]);
 
   if (!game) return null;
 
@@ -61,13 +69,52 @@ export default function LobbyPage() {
           </Button>
         </div>
 
-        <Button tone="white" className="text-lg" onClick={() => navigate("/photos")}>
-          📷 우리 사진 넣기 (흐릿한 이미지에 섞여 나와요)
-        </Button>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button tone="white" className="text-lg" onClick={() => navigate("/photos")}>
+            📷 우리 사진 넣기
+          </Button>
+          <Button
+            tone="green"
+            className="text-lg"
+            onClick={() => {
+              // 라운드가 많아서 고르기 힘들 때, 아직 안 한 것 중에 하나를 뽑아 줍니다.
+              const pool = ROUND_INFOS.filter((round) => !(game.roundResults[round.type]?.length ?? 0));
+              const source = pool.length ? pool : ROUND_INFOS;
+              const pick = source[Math.floor(Math.random() * source.length)];
+              navigate(`/round/${pick.type}`);
+            }}
+          >
+            🎲 아무거나 골라줘
+          </Button>
+        </div>
+
+        {showRounds && (
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                ["all", `전체 ${ROUND_INFOS.length}`],
+                ["화면", "🖥 화면으로"],
+                ["말·몸", "🗣 말·몸으로"],
+                ["new", "아직 안 한 것"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setFilter(key)}
+                className={`rounded-full border-3 border-[#171721] px-4 py-2 text-sm font-black ${
+                  filter === key ? "bg-[#FFE66D]" : "bg-white"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
 
         {showRounds && (
           <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {ROUND_INFOS.map((round) => {
+            {visibleRounds.map((round) => {
               const playedCount = game.roundResults[round.type]?.length ?? 0;
               const played = playedCount > 0;
 
