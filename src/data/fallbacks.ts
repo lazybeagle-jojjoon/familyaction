@@ -28,6 +28,7 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
   stroke_draw: {},
   cargo_six: {},
   odd_grid: {},
+  homonym: {},
   silent_shout: { words: SILENT_SHOUT_WORDS },
   charades: { words: CHARADES_WORDS },
   pool_finale: {

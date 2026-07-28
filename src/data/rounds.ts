@@ -144,6 +144,13 @@ export const ROUND_INFOS: RoundInfo[] = [
     tag: "화면",
   },
   {
+    type: "homonym",
+    icon: "🎭",
+    title: "한말 두 얼굴",
+    description: "같은 단어를 서로 다른 뜻으로 쓴 문장 만들기",
+    tag: "말·몸",
+  },
+  {
     type: "pool_finale",
     icon: "🏊",
     title: "수영장 보물찾기",

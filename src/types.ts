@@ -15,6 +15,7 @@ export type RoundType =
   | "stroke_draw"
   | "cargo_six"
   | "odd_grid"
+  | "homonym"
   | "silent_shout"
   | "charades"
   | "pool_finale";

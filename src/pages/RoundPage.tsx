@@ -10,6 +10,7 @@ import { DRAWING_CARDS } from "../data/drawingCards";
 import { EMOJI_QUIZ_QUESTIONS, type EmojiQuizQuestion } from "../data/emojiQuizQuestions";
 import { FALLBACK_CONTENT } from "../data/fallbacks";
 import { LIE_DETECTOR_FACTS, type LieDetectorQuestion } from "../data/lieDetectorFacts";
+import { HOMONYM_CARDS } from "../data/homonymCards";
 import { HUM_SONGS, type HumSong } from "../data/humSongs";
 import { MEMORY_THEMES } from "../data/memoryThemes";
 import { LIST_CHALLENGES, type ListChallenge } from "../data/listChallenges";
@@ -81,6 +82,7 @@ const roundTypes: RoundType[] = [
   "stroke_draw",
   "cargo_six",
   "odd_grid",
+  "homonym",
   "silent_shout",
   "charades",
   "pool_finale",
@@ -95,6 +97,7 @@ const LIST_HISTORY_KEY = "poolvilla_list_recent";
 const REVERSE_HISTORY_KEY = "poolvilla_reverse_recent";
 const VAULT_HISTORY_KEY = "poolvilla_vault_recent";
 const DRAWING_HISTORY_KEY = "poolvilla_drawing_recent";
+const HOMONYM_HISTORY_KEY = "poolvilla_homonym_recent";
 const NEW_ROUND_HISTORY_LIMIT = 60;
 
 function ensureList<T>(items: T[] | undefined, min = 1): T[] {
@@ -2975,6 +2978,130 @@ function OddGridRound({ game, type }: { game: GameState; type: RoundType }) {
   );
 }
 
+/**
+ * 한말 두 얼굴 — 같은 단어를 서로 다른 뜻으로 쓴 문장을 하나씩 만듭니다.
+ * 어른은 어휘가 넓고 아이는 엉뚱한 뜻을 잘 찾아서 의외로 팽팽합니다.
+ */
+function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const totalQuestions = teams.length * 3;
+
+  const cards = useMemo(() => {
+    const picked: typeof HOMONYM_CARDS = [];
+    for (const tier of [1, 2, 3] as const) {
+      const pool = preferFresh(
+        HOMONYM_CARDS.filter((card) => card.tier === tier),
+        HOMONYM_HISTORY_KEY,
+        (card) => card.id,
+      );
+      for (let seat = 0; seat < teams.length; seat += 1) {
+        if (pool.length) picked.push(pool[seat % pool.length]);
+      }
+    }
+    return picked;
+  }, [teams.length]);
+
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"ready" | "thinking" | "judged">("ready");
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const done = index >= Math.min(totalQuestions, cards.length);
+  const card = cards[index % Math.max(1, cards.length)];
+  const block = Math.floor(index / teams.length);
+  const team = teams[(index + block) % teams.length];
+  const markShown = useShownHistory(HOMONYM_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+  const scoredRef = useRef(false);
+
+  useEffect(() => {
+    if (!done) markShown(card?.id);
+  }, [card, done, markShown]);
+
+  const timeUp = useCallback(() => setPhase("judged"), []);
+  const seconds = useDeadlineCountdown(phase === "thinking", 25, timeUp, index);
+
+  const judge = (points: number) => {
+    if (scoredRef.current) return;
+    scoredRef.current = true;
+    if (points > 0) {
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
+      playCorrect();
+      correctConfetti();
+    } else {
+      playWrong();
+    }
+    setPhase("judged");
+  };
+
+  if (done) {
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="한말 두 얼굴 결과"
+        scores={scores}
+        note="서로 다른 뜻으로 만든 문장 하나당 2점"
+      />
+    );
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {index + 1} / {totalQuestions} 문제
+      </p>
+      <div className="rounded-3xl bg-[#FFE66D] p-6 text-5xl font-black sm:text-7xl">{card.word}</div>
+      <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
+        이 단어를 <b>서로 다른 뜻</b>으로 쓴 문장을 두 개 만들어 보세요.
+        어른이 하나, 아이가 하나씩 말하면 좋아요. 25초!
+      </p>
+
+      {phase === "ready" && (
+        <Button tone="red" className="text-2xl" onClick={() => setPhase("thinking")}>
+          25초 시작
+        </Button>
+      )}
+      {phase === "thinking" && <Countdown seconds={seconds} />}
+
+      {phase !== "ready" && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <Button tone="green" className="text-xl" disabled={scoredRef.current} onClick={() => judge(4)}>
+            둘 다 성공 +4
+          </Button>
+          <Button tone="yellow" className="text-xl" disabled={scoredRef.current} onClick={() => judge(2)}>
+            하나만 +2
+          </Button>
+          <Button tone="red" className="text-xl" disabled={scoredRef.current} onClick={() => judge(0)}>
+            못 했어요
+          </Button>
+        </div>
+      )}
+
+      {phase === "judged" && (
+        <>
+          <div className="grid gap-2 rounded-xl bg-[#FFF3BF] p-4 text-left">
+            {card.senses.map((sense) => (
+              <p key={sense.label} className="font-black">
+                · {sense.label} — <span className="font-bold">{sense.example}</span>
+              </p>
+            ))}
+          </div>
+          <Button
+            tone="blue"
+            className="text-2xl"
+            onClick={() => {
+              scoredRef.current = false;
+              setIndex((value) => value + 1);
+              setPhase("ready");
+            }}
+          >
+            {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
 /** 새 라운드들이 같은 모양의 결과 화면을 쓰도록 묶었습니다. */
 function RoundResult({
   game,
@@ -3223,6 +3350,8 @@ export default function RoundPage() {
     body = <CargoRound game={game} type={roundType} />;
   } else if (roundType === "odd_grid") {
     body = <OddGridRound game={game} type={roundType} />;
+  } else if (roundType === "homonym") {
+    body = <HomonymRound game={game} type={roundType} />;
   } else if (roundType === "silent_shout") {
     body = <SilentShoutRound game={game} content={content} type={roundType} />;
   } else if (roundType === "charades") {
