@@ -471,8 +471,16 @@ function TeamPill({ team, active }: { team: Team; active?: boolean }) {
 function SpeedQuizRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
   const words = useMemo(() => selectSpeedWords(content), [content]);
   const teams = game.teams;
+  // 팀마다 다시 섞으면 "최근에 안 나온 단어 먼저" 순서가 통째로 사라집니다.
+  // 대신 순서를 유지한 채 번갈아 나눠 가져서, 각 팀이 서로 겹치지 않는 신선한 덱을 받습니다.
   const wordDecks = useMemo(
-    () => Object.fromEntries(teams.map((team) => [team.id, shuffle(words)])),
+    () =>
+      Object.fromEntries(
+        teams.map((team, teamOffset) => {
+          const deck = words.filter((_, wordIndex) => wordIndex % teams.length === teamOffset);
+          return [team.id, deck.length ? deck : words];
+        }),
+      ),
     [teams, words],
   );
   const [teamIndex, setTeamIndex] = useState(0);
