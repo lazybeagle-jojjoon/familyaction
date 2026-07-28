@@ -13,6 +13,7 @@ export type RoundType =
   | "reverse_talk"
   | "team_vault"
   | "stroke_draw"
+  | "cargo_six"
   | "silent_shout"
   | "charades"
   | "pool_finale";

@@ -130,6 +130,13 @@ export const ROUND_INFOS: RoundInfo[] = [
     tag: "화면",
   },
   {
+    type: "cargo_six",
+    icon: "📦",
+    title: "멈출까? 짐칸 6",
+    description: "짐을 더 실을지 지금 출발할지, 6을 넘기면 0점",
+    tag: "화면",
+  },
+  {
     type: "pool_finale",
     icon: "🏊",
     title: "수영장 보물찾기",

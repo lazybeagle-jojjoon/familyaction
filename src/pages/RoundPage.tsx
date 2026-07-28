@@ -5,6 +5,7 @@ import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
 import StrokePad from "../components/StrokePad";
 import { BLUR_IMAGE_ITEMS, type BlurImageAsset } from "../data/blurImageItems";
+import { CARGO_CARDS, type CargoCard } from "../data/cargoCards";
 import { DRAWING_CARDS } from "../data/drawingCards";
 import { EMOJI_QUIZ_QUESTIONS, type EmojiQuizQuestion } from "../data/emojiQuizQuestions";
 import { FALLBACK_CONTENT } from "../data/fallbacks";
@@ -77,6 +78,7 @@ const roundTypes: RoundType[] = [
   "reverse_talk",
   "team_vault",
   "stroke_draw",
+  "cargo_six",
   "silent_shout",
   "charades",
   "pool_finale",
@@ -2707,6 +2709,155 @@ function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
   );
 }
 
+/**
+ * 멈출까? 짐칸 6 — 짐을 계속 실어 합계 6에 가깝게 만들되, 넘기기 전에 출발해야 합니다.
+ * 지식이 전혀 필요 없는 유일한 라운드라 제일 어린 아이도 똑같이 이길 수 있습니다.
+ */
+function CargoRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const TRIPS = 2;
+  const LIMIT = 6;
+  const totalTurns = teams.length * TRIPS;
+
+  // 매 여행마다 무게 1·1·2·2·3·3 여섯 장. 이름만 다르고 확률은 모든 팀이 같습니다.
+  const decks = useMemo(() => {
+    const built: CargoCard[][] = [];
+    for (let turn = 0; turn < totalTurns; turn += 1) {
+      const deck: CargoCard[] = [];
+      for (const weight of [1, 2, 3] as const) {
+        const pool = shuffle(CARGO_CARDS.filter((card) => card.weight === weight));
+        deck.push(pool[0], pool[1] ?? pool[0]);
+      }
+      built.push(shuffle(deck));
+    }
+    return built;
+  }, [totalTurns]);
+
+  const [turn, setTurn] = useState(0);
+  const [drawn, setDrawn] = useState<CargoCard[]>([]);
+  const [settled, setSettled] = useState<null | { total: number; busted: boolean; points: number }>(null);
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const done = turn >= totalTurns;
+  // 1차는 A→B→C, 2차는 C→B→A 순서로 돌아 마지막 순서의 이점을 없앱니다.
+  const trip = Math.floor(turn / teams.length);
+  const seat = turn % teams.length;
+  const team = teams[trip % 2 === 0 ? seat : teams.length - 1 - seat];
+  const deck = decks[turn % Math.max(1, decks.length)] ?? [];
+  const total = drawn.reduce((sum, card) => sum + card.weight, 0);
+
+  const pointsFor = (value: number) => {
+    if (value > LIMIT) return 0;
+    if (value >= 5) return 3;
+    if (value >= 3) return 2;
+    return value >= 1 ? 1 : 0;
+  };
+
+  const draw = () => {
+    const next = deck[drawn.length];
+    if (!next) return;
+    const nextDrawn = [...drawn, next];
+    setDrawn(nextDrawn);
+    const nextTotal = nextDrawn.reduce((sum, card) => sum + card.weight, 0);
+    if (nextTotal > LIMIT) {
+      setSettled({ total: nextTotal, busted: true, points: 0 });
+      playWrong();
+    } else if (nextDrawn.length === deck.length) {
+      // 여섯 장을 다 실었는데도 안 넘겼다면 그대로 출발합니다.
+      const points = pointsFor(nextTotal);
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
+      setSettled({ total: nextTotal, busted: false, points });
+      playCorrect();
+    }
+  };
+
+  const depart = () => {
+    const points = pointsFor(total);
+    setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
+    setSettled({ total, busted: false, points });
+    if (points > 0) {
+      playCorrect();
+      correctConfetti();
+    } else {
+      playWrong();
+    }
+  };
+
+  if (done) {
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="멈출까? 짐칸 6 결과"
+        scores={scores}
+        note="5~6은 3점, 3~4는 2점, 1~2는 1점, 6 초과는 0점"
+      />
+    );
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {trip + 1}번째 여행 · {turn + 1} / {totalTurns}
+      </p>
+      <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
+        짐을 실을 때마다 무게가 더해집니다. 합계 <b>6을 넘기면 0점</b>,
+        5~6이면 3점, 3~4면 2점, 1~2면 1점이에요. 욕심낼지 지금 출발할지 팀이 정하세요.
+      </p>
+
+      <div className="rounded-3xl border-4 border-[#171721] bg-white p-5">
+        <p className="text-6xl font-black">{total}</p>
+        <p className="mt-1 font-black text-[#4A4A5E]">지금 무게 (한계 {LIMIT})</p>
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
+          {drawn.map((card, position) => (
+            <span
+              key={`${card.id}-${position}`}
+              className="rounded-xl border-3 border-[#171721] bg-[#FFE66D] px-3 py-2 font-black"
+            >
+              {card.emoji} {card.label} {card.weight}
+            </span>
+          ))}
+          {drawn.length === 0 && <span className="font-bold text-[#4A4A5E]">아직 실은 짐이 없어요</span>}
+        </div>
+      </div>
+
+      {!settled ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button tone="red" className="text-2xl" disabled={drawn.length >= deck.length} onClick={draw}>
+            짐 더 싣기
+          </Button>
+          <Button tone="green" className="text-2xl" disabled={drawn.length === 0} onClick={depart}>
+            지금 출발 (+{pointsFor(total)}점)
+          </Button>
+        </div>
+      ) : (
+        <>
+          <p
+            className={`rounded-xl p-4 text-2xl font-black ${
+              settled.busted ? "bg-[#FFE3E3] text-[#C92A2A]" : "bg-[#D3F9D8] text-[#1B5E20]"
+            }`}
+          >
+            {settled.busted
+              ? `무게 ${settled.total}! 짐칸이 터졌어요. 0점`
+              : `무게 ${settled.total}로 출발! +${settled.points}점`}
+          </p>
+          <Button
+            tone="blue"
+            className="text-2xl"
+            onClick={() => {
+              setTurn((value) => value + 1);
+              setDrawn([]);
+              setSettled(null);
+            }}
+          >
+            {turn + 1 >= totalTurns ? "결과 보기" : "다음 팀"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
 /** 새 라운드들이 같은 모양의 결과 화면을 쓰도록 묶었습니다. */
 function RoundResult({
   game,
@@ -2951,6 +3102,8 @@ export default function RoundPage() {
     body = <VaultRound game={game} type={roundType} />;
   } else if (roundType === "stroke_draw") {
     body = <DrawingRound game={game} type={roundType} />;
+  } else if (roundType === "cargo_six") {
+    body = <CargoRound game={game} type={roundType} />;
   } else if (roundType === "silent_shout") {
     body = <SilentShoutRound game={game} content={content} type={roundType} />;
   } else if (roundType === "charades") {
