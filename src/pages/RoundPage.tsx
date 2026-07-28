@@ -1054,7 +1054,7 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
           <Button
             key={team.id}
             tone={team.color === "red" ? "red" : team.color === "blue" ? "blue" : "green"}
-            disabled={Boolean(awardedTeamId) || revealed}
+            disabled={Boolean(awardedTeamId)}
             onClick={() => {
               setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
               setAwardedTeamId(team.id);
@@ -1067,15 +1067,16 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
           </Button>
         ))}
       </div>
-      {(awardedTeamId || revealed) && (
+      {awardedTeamId && (
         <p className="rounded-xl bg-[#D3F9D8] p-3 font-black text-[#1B5E20]">
-          {awardedTeamId
-            ? "이 문제는 이미 점수가 들어갔어요. 다음 문제로 넘어가세요."
-            : "정답을 공개해서 이 문제는 점수 없이 넘어갑니다."}
+          이 문제는 이미 점수가 들어갔어요. 다음 문제로 넘어가세요.
         </p>
       )}
+      {revealed && (
+        <p className="rounded-xl bg-[#FFF3BF] p-4 text-2xl font-black">정답: {question.answers.join(", ")}</p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Button tone="yellow" onClick={() => setRevealed(true)}>
+        <Button tone="yellow" onClick={() => setRevealed(true)} disabled={revealed}>
           정답 보기
         </Button>
         <Button
@@ -1089,9 +1090,6 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
           다음 문제
         </Button>
       </div>
-      {revealed && (
-        <p className="rounded-xl bg-[#FFF3BF] p-4 text-2xl font-black">정답: {question.answers.join(", ")}</p>
-      )}
     </section>
   );
 }
