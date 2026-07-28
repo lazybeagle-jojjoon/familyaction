@@ -496,7 +496,16 @@ function RoundHeader({ game, type }: { game: GameState; type: RoundType }) {
   return (
     <div className="grid gap-4">
       <div className="flex items-center justify-between gap-3">
-        <Link to="/lobby" className="rounded-full bg-white px-4 py-2 text-sm font-black shadow">
+        <Link
+          to="/lobby"
+          // 진행 중인 라운드는 아직 저장 전이라, 실수로 나가면 그 판이 사라집니다.
+          onClick={(event) => {
+            if (!window.confirm("로비로 나가면 이번 라운드 진행과 점수가 사라져요. 나갈까요?")) {
+              event.preventDefault();
+            }
+          }}
+          className="rounded-full bg-white px-4 py-2 text-sm font-black shadow"
+        >
           ← 로비
         </Link>
         <span className="rounded-full bg-[#FFE66D] px-4 py-2 text-sm font-black">
@@ -1389,13 +1398,15 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
 
   const questions = useMemo(() => {
     const themes = preferFresh(MEMORY_THEMES, MEMORY_HISTORY_KEY, (theme) => theme.id);
-    const built: { theme: string; tiles: string[]; missing: string; seconds: number }[] = [];
+    const built: { themeId: string; theme: string; tiles: string[]; missing: string; seconds: number }[] = [];
 
     for (let index = 0; index < totalQuestions; index += 1) {
       const theme = themes[index % themes.length];
       const tier = tiers[Math.floor(index / teams.length) % tiers.length];
       const picked = shuffle(theme.tiles).slice(0, Math.min(tier.tiles, theme.tiles.length));
       built.push({
+        // 이력은 id로 비교하므로 id를 그대로 들고 다녀야 최근 주제가 실제로 걸러집니다.
+        themeId: theme.id,
         theme: theme.name,
         tiles: picked,
         missing: picked[randomIndex(picked.length)],
@@ -1418,7 +1429,7 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
   const markShown = useShownHistory(MEMORY_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
 
   useEffect(() => {
-    if (!done) markShown(question?.theme);
+    if (!done) markShown(question?.themeId);
   }, [done, markShown, question]);
 
   const hideOne = useCallback(() => setPhase("recall"), []);
@@ -1537,10 +1548,21 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
 function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }) {
   const teams = game.teams;
   const totalQuestions = teams.length * 3;
-  const cards = useMemo(
-    () => preferFresh(SEQUENCE_CARDS, SEQUENCE_HISTORY_KEY, (card) => card.id).slice(0, totalQuestions),
-    [totalQuestions],
-  );
+  // 난이도별로 팀 수만큼 뽑아 블록을 만듭니다. 한 팀만 어려운 문제를 몰아 받지 않게요.
+  const cards = useMemo(() => {
+    const picked: typeof SEQUENCE_CARDS = [];
+    for (const tier of [1, 2, 3] as const) {
+      const pool = preferFresh(
+        SEQUENCE_CARDS.filter((card) => card.tier === tier),
+        SEQUENCE_HISTORY_KEY,
+        (card) => card.id,
+      );
+      for (let seat = 0; seat < teams.length; seat += 1) {
+        if (pool.length) picked.push(pool[seat % pool.length]);
+      }
+    }
+    return picked;
+  }, [teams.length]);
 
   const [index, setIndex] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
@@ -1559,9 +1581,13 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
 
   useEffect(() => {
     if (done || !card) return;
-    // 정답 그대로 나오지 않도록 섞은 결과가 정답과 같으면 한 번 더 섞습니다.
+    // 정답 그대로 나오면 문제가 안 되므로, 정답과 달라질 때까지 다시 섞습니다.
     let next = shuffle(card.ordered);
-    if (next.every((item, position) => item === card.ordered[position])) next = shuffle(card.ordered);
+    let guard = 0;
+    while (next.every((item, position) => item === card.ordered[position]) && guard < 10) {
+      next = shuffle(card.ordered);
+      guard += 1;
+    }
     setArrangement(next);
     setPicked(null);
     setLocked(false);
@@ -1586,7 +1612,8 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
   };
 
   const gained = useMemo(() => {
-    if (!card) return 0;
+    // 배열이 아직 안 채워졌을 때 채점하면 빈 배열의 every()가 참이라 만점이 됩니다.
+    if (!card || arrangement.length !== card.ordered.length) return 0;
     const correct = arrangement.every((item, position) => item === card.ordered[position]);
     if (correct) return 5;
     // 붙어 있는 두 장만 뒤바뀐 아까운 경우는 절반 점수를 줍니다.
@@ -1647,7 +1674,12 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
       </div>
 
       {!locked ? (
-        <Button tone="red" className="text-2xl" onClick={lock}>
+        <Button
+          tone="red"
+          className="text-2xl"
+          disabled={arrangement.length !== card.ordered.length}
+          onClick={lock}
+        >
           이 순서로 확정
         </Button>
       ) : (
@@ -1736,35 +1768,45 @@ function HumSongRound({ game, type }: { game: GameState; type: RoundType }) {
       <div className="rounded-3xl bg-[#FFE66D] p-6 text-3xl font-black sm:text-5xl">
         {showTitle ? song.title : "곡 숨김"}
       </div>
-      <Button tone="yellow" onClick={() => setShowTitle((value) => !value)}>
+      {/* 노래가 시작되면 제목이 보이면 안 되므로 공개 버튼을 잠급니다. */}
+      <Button tone="yellow" disabled={phase !== "ready"} onClick={() => setShowTitle((value) => !value)}>
         {showTitle ? "곡 숨기기" : "부를 사람만 보기"}
       </Button>
 
       {phase === "ready" && (
-        <Button tone="red" className="text-2xl" onClick={() => setPhase("singing")}>
+        <Button
+          tone="red"
+          className="text-2xl"
+          onClick={() => {
+            setShowTitle(false);
+            setPhase("singing");
+          }}
+        >
           30초 시작
         </Button>
       )}
       {phase === "singing" && <Countdown seconds={seconds} />}
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <Button
-          tone="green"
-          className="text-2xl"
-          disabled={phase === "ready"}
-          onClick={() => {
-            setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
-            playCorrect();
-            correctConfetti();
-            next();
-          }}
-        >
-          맞혔어요 +5
-        </Button>
-        <Button tone="white" className="text-2xl" onClick={next}>
-          패스
-        </Button>
-      </div>
+      {phase !== "ready" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button
+            tone="green"
+            className="text-2xl"
+            disabled={phase === "done"}
+            onClick={() => {
+              setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+              playCorrect();
+              correctConfetti();
+              next();
+            }}
+          >
+            맞혔어요 +5
+          </Button>
+          <Button tone="white" className="text-2xl" onClick={next}>
+            {phase === "done" ? "시간 종료 · 다음 곡" : "패스"}
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
@@ -1772,12 +1814,16 @@ function HumSongRound({ game, type }: { game: GameState; type: RoundType }) {
 /** 말하면 지는 인터뷰 — 팀마다 공격 2회·방어 2회로 정확히 균등합니다. */
 function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }) {
   const teams = game.teams;
-  // 3팀이면 A→B, B→C, C→A, A→C, C→B, B→A. 2팀이면 서로 두 번씩.
+  // 3팀이면 A→B, B→C, C→A, A→C, C→B, B→A.
+  // 2팀은 조합이 두 개뿐이라 한 바퀴 더 돌려서, 팀 수와 상관없이 공격 2회·방어 2회로 맞춥니다.
   const matchups = useMemo(() => {
     const list: { attacker: Team; defender: Team }[] = [];
-    for (let step = 1; step < teams.length; step += 1) {
+    for (let step = 1; step < Math.max(2, teams.length); step += 1) {
+      const gap = ((step - 1) % Math.max(1, teams.length - 1)) + 1;
       for (let seat = 0; seat < teams.length; seat += 1) {
-        list.push({ attacker: teams[seat], defender: teams[(seat + step) % teams.length] });
+        // 블록마다 첫 공격팀을 한 칸씩 밀어 같은 팀이 매번 먼저 시작하지 않게 합니다.
+        const attackerSeat = (seat + step - 1) % teams.length;
+        list.push({ attacker: teams[attackerSeat], defender: teams[(attackerSeat + gap) % teams.length] });
       }
     }
     return list;
@@ -1801,16 +1847,29 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
     if (!done) markShown(card?.id);
   }, [card, done, markShown]);
 
-  const timeUp = useCallback(() => setPhase("judged"), []);
-  const seconds = useDeadlineCountdown(phase === "interview", 30, timeUp, index);
+  const [verdict, setVerdict] = useState("");
+  // 판정은 대결당 한 번만. 상태 업데이터 안에서 점수를 주면 StrictMode에서 두 번 실행되므로
+  // 잠금은 ref로 하고 점수 반영은 업데이터 밖에서 합니다.
+  const judgedRef = useRef(false);
 
-  const judge = (attackerWon: boolean) => {
-    const winner = attackerWon ? matchup.attacker : matchup.defender;
-    setScores((value) => ({ ...value, [winner.id]: (value[winner.id] ?? 0) + 5 }));
-    setPhase("judged");
-    playCorrect();
-    correctConfetti();
-  };
+  const award = useCallback(
+    (attackerWon: boolean, reason: string) => {
+      if (judgedRef.current) return;
+      judgedRef.current = true;
+
+      const winner = attackerWon ? matchup.attacker : matchup.defender;
+      setScores((value) => ({ ...value, [winner.id]: (value[winner.id] ?? 0) + 5 }));
+      setVerdict(`${reason} — ${winner.name} +5`);
+      setPhase("judged");
+      playCorrect();
+      correctConfetti();
+    },
+    [matchup],
+  );
+
+  // 30초를 버티면 방어 성공입니다. 판정 없이 넘어가 아무도 점수를 못 받는 일이 없게 합니다.
+  const timeUp = useCallback(() => award(false, "30초를 버텼습니다"), [award]);
+  const seconds = useDeadlineCountdown(phase === "interview", 30, timeUp, index);
 
   if (done) {
     return (
@@ -1852,41 +1911,53 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
           <p className="text-2xl font-black">카드 숨김</p>
         )}
       </div>
-      <Button tone="yellow" onClick={() => setShowCard((value) => !value)}>
+      {/* 인터뷰가 시작되면 금지어가 방어팀에게 보이면 안 되므로 공개 버튼을 잠급니다. */}
+      <Button tone="yellow" disabled={phase !== "ready"} onClick={() => setShowCard((value) => !value)}>
         {showCard ? "카드 숨기기" : "공격팀만 보기"}
       </Button>
 
       {phase === "ready" && (
-        <Button tone="red" className="text-2xl" onClick={() => setPhase("interview")}>
+        <Button
+          tone="red"
+          className="text-2xl"
+          onClick={() => {
+            setShowCard(false);
+            setPhase("interview");
+          }}
+        >
           30초 인터뷰 시작
         </Button>
       )}
       {phase === "interview" && <Countdown seconds={seconds} />}
 
-      {phase !== "ready" && (
+      {phase === "interview" && (
         <div className="grid gap-3 sm:grid-cols-2">
-          {/* 한 번 판정하면 양쪽 모두 잠급니다. 안 그러면 두 팀에 다 점수를 줄 수 있어요. */}
-          <Button tone="green" className="text-xl" disabled={phase === "judged"} onClick={() => judge(true)}>
+          <Button tone="green" className="text-xl" onClick={() => award(true, "금지어를 말했습니다")}>
             금지어 나왔다 · {matchup.attacker.name} +5
           </Button>
-          <Button tone="blue" className="text-xl" disabled={phase === "judged"} onClick={() => judge(false)}>
+          <Button tone="blue" className="text-xl" onClick={() => award(false, "끝까지 버텼습니다")}>
             버텼다 · {matchup.defender.name} +5
           </Button>
         </div>
       )}
 
       {phase === "judged" && (
-        <Button
-          tone="white"
-          className="text-2xl"
-          onClick={() => {
-            setIndex((value) => value + 1);
-            setPhase("ready");
-            setShowCard(false);
-          }}
-        >
-          {index + 1 >= matchups.length ? "결과 보기" : "다음 대결"}
-        </Button>
+        <>
+          <p className="rounded-xl bg-[#FFF3BF] p-4 text-xl font-black">{verdict}</p>
+          <Button
+            tone="white"
+            className="text-2xl"
+            onClick={() => {
+              judgedRef.current = false;
+              setIndex((value) => value + 1);
+              setPhase("ready");
+              setShowCard(false);
+              setVerdict("");
+            }}
+          >
+            {index + 1 >= matchups.length ? "결과 보기" : "다음 대결"}
+          </Button>
+        </>
       )}
     </section>
   );
@@ -2055,6 +2126,14 @@ export default function RoundPage() {
   const round = useMemo(() => (valid ? getRoundInfo(roundType) : undefined), [roundType, valid]);
 
   useScreenWakeLock(valid);
+
+  // 새로고침·탭 닫기로 진행 중인 라운드를 통째로 날리는 사고를 막습니다.
+  useEffect(() => {
+    if (!valid) return;
+    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [valid]);
 
   useEffect(() => {
     let mounted = true;

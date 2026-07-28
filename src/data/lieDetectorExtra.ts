@@ -621,9 +621,9 @@ export const LIE_DETECTOR_EXTRA_FACTS: LieDetectorQuestion[] = [
     explanation: "보라색과 흰색 당근이 먼저 있었어요.",
   },
   {
-    fact: "토마토는 채소가 아니라 열매로 분류된다",
+    fact: "토마토는 식물학적으로는 열매다",
     isTrue: true,
-    explanation: "꽃이 진 자리에 씨와 함께 자라기 때문이에요.",
+    explanation: "씨를 품고 자라서 식물학적으로는 열매지만, 요리에서는 채소로 다뤄요.",
   },
   {
     fact: "땅콩은 견과류가 아니라 콩 종류다",
@@ -661,9 +661,9 @@ export const LIE_DETECTOR_EXTRA_FACTS: LieDetectorQuestion[] = [
     explanation: "칼륨 성분 때문인데 몸에 해로운 정도는 아니에요.",
   },
   {
-    fact: "옥수수수염의 개수는 옥수수 알갱이 개수와 같다",
+    fact: "옥수수 알갱이 하나마다 수염이 하나씩 이어져 있다",
     isTrue: true,
-    explanation: "수염 하나가 알갱이 하나로 이어져요.",
+    explanation: "수염이 꽃가루를 받아야 그 자리에 알갱이가 생겨요.",
   },
   {
     fact: "한글은 누가 언제 만들었는지 기록이 남아 있는 문자다",
@@ -716,7 +716,7 @@ export const LIE_DETECTOR_EXTRA_FACTS: LieDetectorQuestion[] = [
     explanation: "다 자라면 대개 동쪽을 보고 멈춰요.",
   },
   {
-    fact: "사람은 하루에 침을 1리터쯤 만든다",
+    fact: "사람은 하루에 침을 0.5~1.5리터쯤 만든다",
     isTrue: true,
     explanation: "음식을 부드럽게 하고 입안을 지켜 줘요.",
   },

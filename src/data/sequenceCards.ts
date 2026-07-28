@@ -21,7 +21,7 @@ export const SEQUENCE_CARDS: SequenceCard[] = [
   { id: "t1-05", prompt: "라면 끓이기", ordered: ["냄비에 물 붓기", "물 끓이기", "면과 스프 넣기", "그릇에 담기"], tier: 1, explanation: "물이 끓은 다음에 면을 넣어요." },
   { id: "t1-06", prompt: "이 닦기", ordered: ["칫솔에 치약 짜기", "이 닦기", "입 헹구기", "칫솔 꽂아두기"], tier: 1, explanation: "닦고 헹군 뒤 정리해요." },
   { id: "t1-07", prompt: "편지 보내기", ordered: ["편지 쓰기", "봉투에 넣기", "우표 붙이기", "우체통에 넣기"], tier: 1, explanation: "다 쓴 뒤 봉투와 우표를 준비해요." },
-  { id: "t1-08", prompt: "수영장 들어가기", ordered: ["수영복 갈아입기", "준비운동", "샤워하기", "물에 들어가기"], tier: 1, explanation: "준비운동과 샤워를 하고 들어가요." },
+  { id: "t1-08", prompt: "물놀이 준비", ordered: ["수영복 갈아입기", "선크림 바르기", "준비운동", "물에 들어가기"], tier: 1, explanation: "몸을 풀고 나서 물에 들어가요." },
   { id: "t1-09", prompt: "케이크 만들기", ordered: ["재료 준비", "반죽 섞기", "오븐에 굽기", "크림 바르기"], tier: 1, explanation: "구운 다음에 장식해요." },
   { id: "t1-10", prompt: "빨래하기", ordered: ["옷 모으기", "세탁기 돌리기", "널기", "개어 넣기"], tier: 1, explanation: "말린 뒤에 정리해요." },
   { id: "t1-11", prompt: "하루의 시간", ordered: ["새벽", "아침", "낮", "밤"], tier: 1, explanation: "새벽이 지나 아침이 오고 밤이 돼요." },
@@ -49,10 +49,10 @@ export const SEQUENCE_CARDS: SequenceCard[] = [
 
   // tier 3 — 어른과 아이가 같이 생각해야 하는 순서
   { id: "t3-01", prompt: "사람이 자라는 순서", ordered: ["아기", "어린이", "어른", "할머니 할아버지"], tier: 3, explanation: "시간이 흐르며 이어지는 순서예요." },
-  { id: "t3-02", prompt: "옛날 물건이 나온 순서", ordered: ["카세트테이프", "시디", "엠피삼", "스마트폰"], tier: 3, explanation: "소리를 담는 방법이 점점 바뀌었어요." },
+  { id: "t3-02", prompt: "우리나라에서 널리 쓰인 순서", ordered: ["카세트테이프", "시디", "엠피삼", "스마트폰"], tier: 3, explanation: "소리를 담는 방법이 점점 바뀌었어요." },
   { id: "t3-03", prompt: "연락 방법이 바뀐 순서", ordered: ["편지", "공중전화", "삐삐", "휴대폰"], tier: 3, explanation: "점점 빠르고 개인적인 방식으로 바뀌었어요." },
-  { id: "t3-04", prompt: "천둥번개가 칠 때", ordered: ["구름이 몰려옴", "번개가 번쩍", "천둥소리", "비가 쏟아짐"], tier: 3, explanation: "빛이 소리보다 빨라 번개가 먼저 보여요." },
-  { id: "t3-05", prompt: "감기에 걸렸을 때", ordered: ["목이 칼칼함", "열이 남", "약 먹고 쉬기", "다 나음"], tier: 3, explanation: "증상이 생기고 쉬면 회복돼요." },
+  { id: "t3-04", prompt: "번개가 치고 소리가 들리기까지", ordered: ["구름 속에 전기가 쌓임", "번개가 번쩍", "빛이 눈에 닿음", "천둥소리가 들림"], tier: 3, explanation: "빛이 소리보다 훨씬 빨라 번개를 먼저 보고 소리는 나중에 들어요." },
+  { id: "t3-05", prompt: "다친 곳이 낫는 순서", ordered: ["상처가 남", "피가 멎음", "딱지가 생김", "새 살이 돋음"], tier: 3, explanation: "피가 멎고 딱지가 앉은 뒤에 새 살이 올라와요." },
   { id: "t3-06", prompt: "빵이 부풀어 구워지기까지", ordered: ["반죽하기", "발효로 부풀기", "굽기", "식히기"], tier: 3, explanation: "부풀린 뒤 구워서 식혀요." },
   { id: "t3-07", prompt: "우유가 치즈가 되기까지", ordered: ["우유 데우기", "덩어리 만들기", "물기 빼기", "숙성시키기"], tier: 3, explanation: "굳힌 뒤 시간을 두고 익혀요." },
   { id: "t3-08", prompt: "산불이 났을 때", ordered: ["연기 발견", "신고하기", "소방차 출동", "불 끄기"], tier: 3, explanation: "알리는 게 가장 먼저예요." },
