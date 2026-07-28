@@ -8,15 +8,17 @@ interface ScoreboardProps {
 }
 
 export default function Scoreboard({ game, compact = false }: ScoreboardProps) {
-  const maxScore = Math.max(1, ...Object.values(game.scores));
-  const leaders = game.teams.filter((team) => game.scores[team.id] === Math.max(...Object.values(game.scores)));
+  const topScore = Math.max(0, ...Object.values(game.scores));
+  const maxScore = Math.max(1, topScore);
+  // 아직 아무도 점수를 못 냈으면 1등도 없습니다. (전원에게 왕관이 붙던 문제)
+  const leaders = topScore > 0 ? game.teams.filter((team) => game.scores[team.id] === topScore) : [];
 
   return (
     <section className={`tv-panel rounded-2xl ${compact ? "p-3" : "p-4 sm:p-5"}`}>
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="text-xl font-black sm:text-2xl">실시간 점수판</h2>
         <span className="rounded-full bg-[#FFE66D] px-3 py-1 text-sm font-black">
-          {leaders.length === 1 ? `👑 ${leaders[0].name}` : "공동 1등"}
+          {leaders.length === 0 ? "아직 0점" : leaders.length === 1 ? `👑 ${leaders[0].name}` : "공동 1등"}
         </span>
       </div>
       <div className="grid gap-3">
