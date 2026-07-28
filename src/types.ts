@@ -4,6 +4,10 @@ export type RoundType =
   | "chosung_quiz"
   | "emoji_quiz"
   | "lie_detector"
+  | "memory_thief"
+  | "sequence_order"
+  | "hum_song"
+  | "trap_interview"
   | "silent_shout"
   | "charades"
   | "pool_finale";
@@ -38,6 +42,7 @@ export interface RoundInfo {
   icon: string;
   title: string;
   description: string;
-  tag: "온라인" | "오프라인";
+  /** 화면 = 앱 문제를 보고 푸는 라운드, 말·몸 = 목소리와 몸으로 하는 라운드 */
+  tag: "화면" | "말·몸";
   prompt?: string;
 }

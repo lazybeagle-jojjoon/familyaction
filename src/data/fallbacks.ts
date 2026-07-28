@@ -16,6 +16,11 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
   chosung_quiz: { questions: CHOSUNG_QUESTIONS },
   emoji_quiz: { questions: EMOJI_QUIZ_QUESTIONS },
   lie_detector: { questions: LIE_DETECTOR_FACTS },
+  // 아래 네 라운드는 처음부터 로컬 데이터만 씁니다. (프롬프트가 없어 API를 부르지 않습니다)
+  memory_thief: {},
+  sequence_order: {},
+  hum_song: {},
+  trap_interview: {},
   silent_shout: { words: SILENT_SHOUT_WORDS },
   charades: { words: CHARADES_WORDS },
   pool_finale: {

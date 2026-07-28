@@ -7,7 +7,11 @@ import { BLUR_IMAGE_ITEMS, type BlurImageAsset } from "../data/blurImageItems";
 import { EMOJI_QUIZ_QUESTIONS, type EmojiQuizQuestion } from "../data/emojiQuizQuestions";
 import { FALLBACK_CONTENT } from "../data/fallbacks";
 import { LIE_DETECTOR_FACTS, type LieDetectorQuestion } from "../data/lieDetectorFacts";
+import { HUM_SONGS, type HumSong } from "../data/humSongs";
+import { MEMORY_THEMES } from "../data/memoryThemes";
 import { getRoundInfo } from "../data/rounds";
+import { SEQUENCE_CARDS } from "../data/sequenceCards";
+import { TRAP_CARDS } from "../data/trapCards";
 import { playBeep, playCorrect, playWrong } from "../lib/audio";
 import { normalizeChosungQuestion, type ChosungQuestion } from "../lib/chosung";
 import { generateRoundContent } from "../lib/claude";
@@ -56,10 +60,20 @@ const roundTypes: RoundType[] = [
   "chosung_quiz",
   "emoji_quiz",
   "lie_detector",
+  "memory_thief",
+  "sequence_order",
+  "hum_song",
+  "trap_interview",
   "silent_shout",
   "charades",
   "pool_finale",
 ];
+
+const MEMORY_HISTORY_KEY = "poolvilla_memory_recent";
+const SEQUENCE_HISTORY_KEY = "poolvilla_sequence_recent";
+const HUM_HISTORY_KEY = "poolvilla_hum_recent";
+const TRAP_HISTORY_KEY = "poolvilla_trap_recent";
+const NEW_ROUND_HISTORY_LIMIT = 60;
 
 function ensureList<T>(items: T[] | undefined, min = 1): T[] {
   return Array.isArray(items) && items.length >= min ? items : [];
@@ -1347,6 +1361,552 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
   );
 }
 
+/**
+ * 기억 도둑 — 타일을 잠깐 보여준 뒤 하나를 빼고 다시 보여줍니다.
+ * 주제와 조합을 매번 새로 뽑기 때문에 세 판을 해도 같은 문제가 나오지 않습니다.
+ */
+function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const tiers = [
+    { tiles: 6, seconds: 10 },
+    { tiles: 8, seconds: 12 },
+    { tiles: 10, seconds: 14 },
+  ];
+  const totalQuestions = teams.length * tiers.length;
+
+  const questions = useMemo(() => {
+    const themes = preferFresh(MEMORY_THEMES, MEMORY_HISTORY_KEY, (theme) => theme.id);
+    const built: { theme: string; tiles: string[]; missing: string; seconds: number }[] = [];
+
+    for (let index = 0; index < totalQuestions; index += 1) {
+      const theme = themes[index % themes.length];
+      const tier = tiers[Math.floor(index / teams.length) % tiers.length];
+      const picked = shuffle(theme.tiles).slice(0, Math.min(tier.tiles, theme.tiles.length));
+      built.push({
+        theme: theme.name,
+        tiles: picked,
+        missing: picked[randomIndex(picked.length)],
+        seconds: tier.seconds,
+      });
+    }
+
+    return built;
+  }, [totalQuestions, teams.length]);
+
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"ready" | "memorize" | "recall" | "revealed">("ready");
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const [scored, setScored] = useState(false);
+  const done = index >= totalQuestions;
+  const question = questions[index % questions.length];
+  // 블록마다 시작 팀을 돌려서 어려운 문제가 같은 팀에 몰리지 않게 합니다.
+  const block = Math.floor(index / teams.length);
+  const team = teams[(index + block) % teams.length];
+  const markShown = useShownHistory(MEMORY_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+
+  useEffect(() => {
+    if (!done) markShown(question?.theme);
+  }, [done, markShown, question]);
+
+  const hideOne = useCallback(() => setPhase("recall"), []);
+  const seconds = useDeadlineCountdown(phase === "memorize", question?.seconds ?? 10, hideOne, index);
+
+  const shownTiles = useMemo(
+    () => (phase === "recall" || phase === "revealed" ? shuffle(question.tiles.filter((tile) => tile !== question.missing)) : question.tiles),
+    [phase, question],
+  );
+
+  const next = () => {
+    setIndex((value) => value + 1);
+    setPhase("ready");
+    setScored(false);
+  };
+
+  if (done) {
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="기억 도둑 결과"
+        scores={scores}
+        note="사라진 그림 맞히면 5점"
+      />
+    );
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {index + 1} / {totalQuestions} 문제 · 주제: {question.theme}
+      </p>
+
+      {phase === "ready" && (
+        <>
+          <p className="rounded-xl bg-[#F6FBFF] p-4 text-lg font-bold">
+            {question.seconds}초 동안 {question.tiles.length}개를 외우세요. 그다음 하나가 사라집니다.
+          </p>
+          <Button tone="red" className="text-2xl" onClick={() => setPhase("memorize")}>
+            외우기 시작
+          </Button>
+        </>
+      )}
+
+      {phase === "memorize" && <Countdown seconds={seconds} />}
+
+      {(phase === "memorize" || phase === "recall" || phase === "revealed") && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          {shownTiles.map((tile) => (
+            <div key={tile} className="rounded-xl border-3 border-[#171721] bg-white p-3 text-lg font-black">
+              {tile}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {phase === "recall" && (
+        <>
+          <p className="rounded-xl bg-[#FFF3BF] p-4 text-xl font-black">무엇이 사라졌을까요?</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Button
+              tone="green"
+              disabled={scored}
+              onClick={() => {
+                setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+                setScored(true);
+                setPhase("revealed");
+                playCorrect();
+                correctConfetti();
+              }}
+            >
+              맞혔어요 +5
+            </Button>
+            <Button
+              tone="red"
+              disabled={scored}
+              onClick={() => {
+                setScored(true);
+                setPhase("revealed");
+                playWrong();
+              }}
+            >
+              못 맞혔어요
+            </Button>
+            <Button tone="yellow" onClick={() => setPhase("revealed")}>
+              정답 보기
+            </Button>
+          </div>
+        </>
+      )}
+
+      {phase === "revealed" && (
+        <>
+          <p className="rounded-xl bg-[#FFF3BF] p-4 text-2xl font-black">사라진 것: {question.missing}</p>
+          <Button tone="blue" className="text-2xl" onClick={next}>
+            {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** 순서 맞추기 — 섞인 네 장면을 두 개씩 눌러 자리를 바꿔 정렬합니다. */
+function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const totalQuestions = teams.length * 3;
+  const cards = useMemo(
+    () => preferFresh(SEQUENCE_CARDS, SEQUENCE_HISTORY_KEY, (card) => card.id).slice(0, totalQuestions),
+    [totalQuestions],
+  );
+
+  const [index, setIndex] = useState(0);
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const [arrangement, setArrangement] = useState<string[]>([]);
+  const [picked, setPicked] = useState<number | null>(null);
+  const [locked, setLocked] = useState(false);
+  const done = index >= Math.min(totalQuestions, cards.length);
+  const card = cards[index % Math.max(1, cards.length)];
+  const block = Math.floor(index / teams.length);
+  const team = teams[(index + block) % teams.length];
+  const markShown = useShownHistory(SEQUENCE_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+
+  useEffect(() => {
+    if (!done) markShown(card?.id);
+  }, [card, done, markShown]);
+
+  useEffect(() => {
+    if (done || !card) return;
+    // 정답 그대로 나오지 않도록 섞은 결과가 정답과 같으면 한 번 더 섞습니다.
+    let next = shuffle(card.ordered);
+    if (next.every((item, position) => item === card.ordered[position])) next = shuffle(card.ordered);
+    setArrangement(next);
+    setPicked(null);
+    setLocked(false);
+  }, [card, done]);
+
+  const swap = (position: number) => {
+    if (locked) return;
+    if (picked === null) {
+      setPicked(position);
+      return;
+    }
+    if (picked === position) {
+      setPicked(null);
+      return;
+    }
+    setArrangement((current) => {
+      const next = [...current];
+      [next[picked], next[position]] = [next[position], next[picked]];
+      return next;
+    });
+    setPicked(null);
+  };
+
+  const gained = useMemo(() => {
+    if (!card) return 0;
+    const correct = arrangement.every((item, position) => item === card.ordered[position]);
+    if (correct) return 5;
+    // 붙어 있는 두 장만 뒤바뀐 아까운 경우는 절반 점수를 줍니다.
+    const wrong = arrangement.map((item, position) => (item === card.ordered[position] ? -1 : position)).filter((p) => p >= 0);
+    if (wrong.length === 2 && wrong[1] - wrong[0] === 1) return 2;
+    return 0;
+  }, [arrangement, card]);
+
+  const lock = () => {
+    setLocked(true);
+    setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + gained }));
+    if (gained > 0) {
+      playCorrect();
+      correctConfetti();
+    } else {
+      playWrong();
+    }
+  };
+
+  if (done) {
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="순서 맞추기 결과"
+        scores={scores}
+        note="정확히 맞히면 5점, 두 장만 바뀌었으면 2점"
+      />
+    );
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {index + 1} / {totalQuestions} 문제
+      </p>
+      <h2 className="rounded-xl bg-[#4ECDC4] p-4 text-2xl font-black">{card.prompt}</h2>
+      <p className="font-bold text-[#4A4A5E]">두 칸을 차례로 눌러 자리를 바꾸세요.</p>
+
+      <div className="grid gap-3">
+        {arrangement.map((item, position) => {
+          const correctHere = locked && item === card.ordered[position];
+          return (
+            <button
+              key={item}
+              type="button"
+              disabled={locked}
+              onClick={() => swap(position)}
+              className={`tv-button rounded-xl px-4 py-3 text-left text-xl font-black ${
+                picked === position ? "bg-[#FFE66D]" : locked ? (correctHere ? "bg-[#D3F9D8]" : "bg-[#FFE3E3]") : "bg-white"
+              }`}
+            >
+              {position + 1}. {item}
+            </button>
+          );
+        })}
+      </div>
+
+      {!locked ? (
+        <Button tone="red" className="text-2xl" onClick={lock}>
+          이 순서로 확정
+        </Button>
+      ) : (
+        <>
+          <p className="rounded-xl bg-[#FFF3BF] p-4 text-lg font-black">
+            정답: {card.ordered.join(" → ")} (+{gained}점)
+          </p>
+          <p className="rounded-xl bg-white p-3 font-bold">{card.explanation}</p>
+          <Button
+            tone="blue"
+            className="text-2xl"
+            onClick={() => setIndex((value) => value + 1)}
+          >
+            {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+          </Button>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** 콧노래 대결 — 아이 곡·부모 곡·공통 곡을 한 번씩 맡아 흥얼거립니다. */
+function HumSongRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  const bands: HumSong["band"][] = ["child", "parent", "shared"];
+  const bandLabel: Record<HumSong["band"], string> = {
+    child: "아이가 부르기",
+    parent: "어른이 부르기",
+    shared: "아무나 부르기",
+  };
+  const totalQuestions = teams.length * bands.length;
+
+  const songs = useMemo(() => {
+    const picked: HumSong[] = [];
+    for (let block = 0; block < bands.length; block += 1) {
+      const band = bands[block];
+      const pool = preferFresh(
+        HUM_SONGS.filter((song) => song.band === band),
+        HUM_HISTORY_KEY,
+        (song) => song.id,
+      );
+      for (let seat = 0; seat < teams.length; seat += 1) {
+        picked.push(pool[seat % pool.length]);
+      }
+    }
+    return picked;
+  }, [teams.length]);
+
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"ready" | "singing" | "done">("ready");
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const [showTitle, setShowTitle] = useState(false);
+  const done = index >= totalQuestions;
+  const song = songs[index % songs.length];
+  const block = Math.floor(index / teams.length);
+  const team = teams[(index + block) % teams.length];
+  const markShown = useShownHistory(HUM_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+
+  useEffect(() => {
+    if (!done) markShown(song?.id);
+  }, [done, markShown, song]);
+
+  const timeUp = useCallback(() => setPhase("done"), []);
+  const seconds = useDeadlineCountdown(phase === "singing", 30, timeUp, index);
+
+  const next = () => {
+    setIndex((value) => value + 1);
+    setPhase("ready");
+    setShowTitle(false);
+  };
+
+  if (done) {
+    return <RoundResult game={game} type={type} title="콧노래 대결 결과" scores={scores} note="맞힌 곡마다 5점" />;
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <TeamPill team={team} active />
+      <p className="text-xl font-black">
+        {index + 1} / {totalQuestions} 곡 · {bandLabel[song.band]}
+      </p>
+      <p className="rounded-xl bg-[#F6FBFF] p-4 font-bold leading-7">
+        부를 사람만 화면을 보세요. 가사 없이 &ldquo;음음음&rdquo; 또는 &ldquo;라라라&rdquo;로만 부릅니다.
+      </p>
+
+      <div className="rounded-3xl bg-[#FFE66D] p-6 text-3xl font-black sm:text-5xl">
+        {showTitle ? song.title : "곡 숨김"}
+      </div>
+      <Button tone="yellow" onClick={() => setShowTitle((value) => !value)}>
+        {showTitle ? "곡 숨기기" : "부를 사람만 보기"}
+      </Button>
+
+      {phase === "ready" && (
+        <Button tone="red" className="text-2xl" onClick={() => setPhase("singing")}>
+          30초 시작
+        </Button>
+      )}
+      {phase === "singing" && <Countdown seconds={seconds} />}
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Button
+          tone="green"
+          className="text-2xl"
+          disabled={phase === "ready"}
+          onClick={() => {
+            setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+            playCorrect();
+            correctConfetti();
+            next();
+          }}
+        >
+          맞혔어요 +5
+        </Button>
+        <Button tone="white" className="text-2xl" onClick={next}>
+          패스
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** 말하면 지는 인터뷰 — 팀마다 공격 2회·방어 2회로 정확히 균등합니다. */
+function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }) {
+  const teams = game.teams;
+  // 3팀이면 A→B, B→C, C→A, A→C, C→B, B→A. 2팀이면 서로 두 번씩.
+  const matchups = useMemo(() => {
+    const list: { attacker: Team; defender: Team }[] = [];
+    for (let step = 1; step < teams.length; step += 1) {
+      for (let seat = 0; seat < teams.length; seat += 1) {
+        list.push({ attacker: teams[seat], defender: teams[(seat + step) % teams.length] });
+      }
+    }
+    return list;
+  }, [teams]);
+
+  const cards = useMemo(
+    () => preferFresh(TRAP_CARDS, TRAP_HISTORY_KEY, (card) => card.id).slice(0, matchups.length),
+    [matchups.length],
+  );
+
+  const [index, setIndex] = useState(0);
+  const [phase, setPhase] = useState<"ready" | "interview" | "judged">("ready");
+  const [scores, setScores] = useState<Record<string, number>>({});
+  const [showCard, setShowCard] = useState(false);
+  const done = index >= matchups.length;
+  const card = cards[index % Math.max(1, cards.length)];
+  const matchup = matchups[index % matchups.length];
+  const markShown = useShownHistory(TRAP_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
+
+  useEffect(() => {
+    if (!done) markShown(card?.id);
+  }, [card, done, markShown]);
+
+  const timeUp = useCallback(() => setPhase("judged"), []);
+  const seconds = useDeadlineCountdown(phase === "interview", 30, timeUp, index);
+
+  const judge = (attackerWon: boolean) => {
+    const winner = attackerWon ? matchup.attacker : matchup.defender;
+    setScores((value) => ({ ...value, [winner.id]: (value[winner.id] ?? 0) + 5 }));
+    setPhase("judged");
+    playCorrect();
+    correctConfetti();
+  };
+
+  if (done) {
+    return (
+      <RoundResult
+        game={game}
+        type={type}
+        title="말하면 지는 인터뷰 결과"
+        scores={scores}
+        note="팀마다 공격 2회·방어 2회, 이긴 쪽 5점"
+      />
+    );
+  }
+
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <TeamPill team={matchup.attacker} active />
+        <span className="text-xl font-black">공격 →</span>
+        <TeamPill team={matchup.defender} />
+      </div>
+      <p className="text-xl font-black">
+        {index + 1} / {matchups.length} 대결
+      </p>
+      <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
+        공격팀만 화면을 봅니다. 30초 안에 상대가 금지어를 말하게 유도하세요.
+        방어팀은 3초 안에 계속 대답해야 하고, 금지어를 말하면 집니다.
+      </p>
+
+      <div className="rounded-3xl border-4 border-[#171721] bg-white p-5">
+        {showCard ? (
+          <div className="grid gap-3">
+            <p className="text-lg font-bold text-[#4A4A5E]">주제</p>
+            <p className="text-3xl font-black">{card.topic}</p>
+            <p className="mt-2 text-lg font-bold text-[#4A4A5E]">금지어</p>
+            <p className="text-2xl font-black text-[#C92A2A]">{card.forbidden.join(" · ")}</p>
+            <p className="mt-2 rounded-xl bg-[#FFF3BF] p-3 font-black">첫 질문: {card.opener}</p>
+          </div>
+        ) : (
+          <p className="text-2xl font-black">카드 숨김</p>
+        )}
+      </div>
+      <Button tone="yellow" onClick={() => setShowCard((value) => !value)}>
+        {showCard ? "카드 숨기기" : "공격팀만 보기"}
+      </Button>
+
+      {phase === "ready" && (
+        <Button tone="red" className="text-2xl" onClick={() => setPhase("interview")}>
+          30초 인터뷰 시작
+        </Button>
+      )}
+      {phase === "interview" && <Countdown seconds={seconds} />}
+
+      {phase !== "ready" && (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <Button tone="green" className="text-xl" onClick={() => judge(true)}>
+            금지어 나왔다 · {matchup.attacker.name} +5
+          </Button>
+          <Button tone="blue" className="text-xl" onClick={() => judge(false)}>
+            버텼다 · {matchup.defender.name} +5
+          </Button>
+        </div>
+      )}
+
+      {phase === "judged" && (
+        <Button
+          tone="white"
+          className="text-2xl"
+          onClick={() => {
+            setIndex((value) => value + 1);
+            setPhase("ready");
+            setShowCard(false);
+          }}
+        >
+          {index + 1 >= matchups.length ? "결과 보기" : "다음 대결"}
+        </Button>
+      )}
+    </section>
+  );
+}
+
+/** 새 라운드들이 같은 모양의 결과 화면을 쓰도록 묶었습니다. */
+function RoundResult({
+  game,
+  type,
+  title,
+  scores,
+  note,
+}: {
+  game: GameState;
+  type: RoundType;
+  title: string;
+  scores: Record<string, number>;
+  note: string;
+}) {
+  return (
+    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5">
+      <h2 className="text-3xl font-black">{title}</h2>
+      {game.teams.map((team) => (
+        <div key={team.id} className="flex items-center justify-between rounded-xl bg-white p-4 text-xl font-black">
+          <TeamPill team={team} />
+          <span>+{scores[team.id] ?? 0}점</span>
+        </div>
+      ))}
+      <SaveRoundButton
+        game={game}
+        result={{
+          roundType: type,
+          playedAt: new Date().toISOString(),
+          teamScores: scores,
+          note,
+        }}
+      >
+        점수 입력 확인
+      </SaveRoundButton>
+    </section>
+  );
+}
+
 function PoolFinaleRound({ game, type }: { game: GameState; type: RoundType }) {
   const [seconds, setSeconds] = useState(60);
   const [running, setRunning] = useState(false);
@@ -1527,6 +2087,14 @@ export default function RoundPage() {
     body = <EmojiRound game={game} content={content} type={roundType} />;
   } else if (roundType === "lie_detector") {
     body = <LieDetectorRound game={game} content={content} type={roundType} />;
+  } else if (roundType === "memory_thief") {
+    body = <MemoryThiefRound game={game} type={roundType} />;
+  } else if (roundType === "sequence_order") {
+    body = <SequenceOrderRound game={game} type={roundType} />;
+  } else if (roundType === "hum_song") {
+    body = <HumSongRound game={game} type={roundType} />;
+  } else if (roundType === "trap_interview") {
+    body = <TrapInterviewRound game={game} type={roundType} />;
   } else if (roundType === "silent_shout") {
     body = <SilentShoutRound game={game} content={content} type={roundType} />;
   } else if (roundType === "charades") {

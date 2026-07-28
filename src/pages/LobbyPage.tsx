@@ -80,7 +80,7 @@ export default function LobbyPage() {
                     </span>
                     <span
                       className={`rounded-full px-3 py-1 text-xs font-black ${
-                        round.tag === "온라인" ? "bg-[#4ECDC4]" : "bg-[#FFE66D]"
+                        round.tag === "화면" ? "bg-[#4ECDC4]" : "bg-[#FFE66D]"
                       }`}
                     >
                       {round.tag}
