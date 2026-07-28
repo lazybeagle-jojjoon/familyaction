@@ -56,10 +56,11 @@ function pick<T>(items: T[]) {
 
 /** 하나만 짝이 없는 그림 찾기 */
 function makeUnpaired(tier: 1 | 2 | 3): OddGridPuzzle {
-  const pairs = tier === 1 ? 3 : tier === 2 ? 5 : 7;
   const set = shuffled(pick(EMOJI_SETS));
+  // 정답이 짝 목록에 섞이면 답이 두 개가 되므로, 세트 크기를 넘지 않게 자릅니다.
+  const pairs = Math.min(tier === 1 ? 3 : tier === 2 ? 5 : 7, set.length - 1);
   const paired = set.slice(0, pairs);
-  const lonely = set[pairs % set.length];
+  const lonely = set[pairs];
   const cells = shuffled([...paired, ...paired, lonely]);
   return {
     rule: "그림이 두 개씩 있는데, 딱 하나만 짝이 없어요. 어느 것일까요?",
