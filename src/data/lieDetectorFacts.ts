@@ -4,6 +4,8 @@ export interface LieDetectorQuestion {
   explanation: string;
 }
 
+import { LIE_DETECTOR_EXTRA_FACTS } from "./lieDetectorExtra";
+
 export const LIE_DETECTOR_FACTS: LieDetectorQuestion[] = [
   {
     fact: "문어는 심장이 3개다",
@@ -755,4 +757,5 @@ export const LIE_DETECTOR_FACTS: LieDetectorQuestion[] = [
     isTrue: true,
     explanation: "화면은 전기를 많이 쓰는 부품 중 하나라 밝기를 낮추면 도움이 돼요.",
   },
+  ...LIE_DETECTOR_EXTRA_FACTS,
 ];
