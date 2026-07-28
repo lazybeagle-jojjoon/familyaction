@@ -1,11 +1,6 @@
 import AnimatedScore from "./AnimatedScore";
-import type { GameState, TeamColor } from "../types";
-
-const colorMap: Record<TeamColor, string> = {
-  red: "#FF6B6B",
-  blue: "#4ECDC4",
-  green: "#51CF66",
-};
+import { TEAM_COLOR_HEX, TEAM_MARK } from "../lib/teams";
+import type { GameState } from "../types";
 
 interface ScoreboardProps {
   game: GameState;
@@ -35,6 +30,7 @@ export default function Scoreboard({ game, compact = false }: ScoreboardProps) {
               <div className="flex items-center justify-between gap-2 text-sm font-black sm:text-base">
                 <span className="truncate">
                   {isLeader ? "👑 " : ""}
+                  <span aria-hidden>{TEAM_MARK[team.color]} </span>
                   {team.name}
                 </span>
                 <span className={isLeader ? "score-glow text-[#F08C00]" : ""}>
@@ -44,7 +40,7 @@ export default function Scoreboard({ game, compact = false }: ScoreboardProps) {
               <div className="h-5 overflow-hidden rounded-full border-2 border-[#171721] bg-white">
                 <div
                   className="h-full rounded-full transition-all duration-500"
-                  style={{ width: `${width}%`, backgroundColor: colorMap[team.color] }}
+                  style={{ width: `${width}%`, backgroundColor: TEAM_COLOR_HEX[team.color] }}
                 />
               </div>
             </div>

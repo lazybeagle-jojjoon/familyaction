@@ -4,7 +4,8 @@ import { playClick } from "../lib/audio";
 type ButtonTone = "red" | "blue" | "yellow" | "green" | "white" | "dark";
 
 const toneClass: Record<ButtonTone, string> = {
-  red: "bg-[#FF6B6B] text-white",
+  // 흰 글씨는 이 빨강 위에서 대비가 2.9:1로 WCAG AA에 못 미쳐 어두운 글씨를 씁니다.
+  red: "bg-[#FF6B6B] text-[#171721]",
   blue: "bg-[#4ECDC4] text-[#171721]",
   yellow: "bg-[#FFE66D] text-[#171721]",
   green: "bg-[#51CF66] text-[#171721]",

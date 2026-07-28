@@ -15,7 +15,8 @@ export function rankAward(
     if (previousScore === null || score < previousScore) {
       rank = index;
     }
-    result[team.id] = awards[Math.min(rank, awards.length - 1)] ?? 0;
+    // 하나도 못 맞힌 팀은 순위 보너스를 받지 않습니다. (전원 0점일 때 전원 1등 상금을 받던 문제)
+    result[team.id] = score > 0 ? awards[Math.min(rank, awards.length - 1)] ?? 0 : 0;
     previousScore = score;
   });
 

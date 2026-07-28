@@ -1,6 +1,11 @@
 import confetti from "canvas-confetti";
 
+function prefersReducedMotion() {
+  return globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
 export function correctConfetti() {
+  if (prefersReducedMotion()) return;
   void confetti({
     particleCount: 60,
     spread: 64,
@@ -10,6 +15,7 @@ export function correctConfetti() {
 }
 
 export function finaleConfetti(level: "small" | "medium" | "huge" = "medium") {
+  if (prefersReducedMotion()) return;
   const count = level === "huge" ? 240 : level === "medium" ? 140 : 80;
   void confetti({
     particleCount: count,

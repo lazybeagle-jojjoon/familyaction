@@ -4,19 +4,10 @@ import Button from "../components/Button";
 import PageShell from "../components/PageShell";
 import { testClaudeConnection } from "../lib/claude";
 import { createGameState, loadApiKey, saveApiKey, saveGameState } from "../lib/storage";
+import { TEAM_COLOR_HEX as colorHex, TEAM_COLOR_LABEL as colorLabel, TEAM_MARK } from "../lib/teams";
 import type { Team, TeamColor } from "../types";
 
 const colors: TeamColor[] = ["red", "blue", "green"];
-const colorLabel: Record<TeamColor, string> = {
-  red: "빨강",
-  blue: "파랑",
-  green: "초록",
-};
-const colorHex: Record<TeamColor, string> = {
-  red: "#FF6B6B",
-  blue: "#4ECDC4",
-  green: "#51CF66",
-};
 
 export default function SetupPage() {
   const navigate = useNavigate();
@@ -183,6 +174,7 @@ export default function SetupPage() {
                     className="rounded-full border-2 border-[#171721] px-3 py-1 text-sm font-black"
                     style={{ backgroundColor: colorHex[team.color] }}
                   >
+                    <span aria-hidden>{TEAM_MARK[team.color]} </span>
                     {colorLabel[team.color]}
                   </span>
                 </div>

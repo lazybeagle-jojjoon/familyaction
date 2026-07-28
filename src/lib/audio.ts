@@ -2,11 +2,15 @@ let audioContext: AudioContext | null = null;
 
 function getAudioContext() {
   audioContext ??= new AudioContext();
+  // iOS/Safari는 사용자 제스처 전까지 컨텍스트를 suspended로 두고,
+  // 앱이 백그라운드에 다녀오면 다시 suspended가 됩니다.
+  if (audioContext.state === "suspended") void audioContext.resume();
   return audioContext;
 }
 
 function tone(frequency: number, duration = 0.12, type: OscillatorType = "sine", volume = 0.14) {
   const context = getAudioContext();
+  if (context.state !== "running") return;
   const oscillator = context.createOscillator();
   const gain = context.createGain();
   oscillator.frequency.value = frequency;

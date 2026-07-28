@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import Button from "../components/Button";
 import PageShell from "../components/PageShell";
@@ -14,6 +14,8 @@ import { generateRoundContent } from "../lib/claude";
 import { correctConfetti } from "../lib/effects";
 import { rankAward } from "../lib/scoring";
 import { addRoundResult, loadGameState, saveGameState } from "../lib/storage";
+import { balancedQuestionCount, teamHex, teamMark } from "../lib/teams";
+import { useScreenWakeLock } from "../lib/wakeLock";
 import type { GameState, RoundResult, RoundType, Team } from "../types";
 
 type WordsContent = { words?: string[] };
@@ -35,6 +37,17 @@ const LIE_HISTORY_KEY = "poolvilla_lie_recent_facts";
 const LIE_HISTORY_LIMIT = 80;
 const SILENT_HISTORY_KEY = "poolvilla_silent_recent_words";
 const CHARADES_HISTORY_KEY = "poolvilla_charades_recent_words";
+
+// 최근 출제 이력을 프롬프트에서 제외 목록으로 넘겨, 모델 쪽 반복도 줄입니다.
+// 흐릿한 이미지는 내부 자산 id라 프롬프트에 쓰기 부적절해 제외합니다.
+const HISTORY_KEY_BY_ROUND: Partial<Record<RoundType, string>> = {
+  speed_quiz: SPEED_HISTORY_KEY,
+  chosung_quiz: CHOSUNG_HISTORY_KEY,
+  emoji_quiz: EMOJI_HISTORY_KEY,
+  lie_detector: LIE_HISTORY_KEY,
+  silent_shout: SILENT_HISTORY_KEY,
+  charades: CHARADES_HISTORY_KEY,
+};
 
 const roundTypes: RoundType[] = [
   "speed_quiz",
@@ -95,28 +108,63 @@ function uniqueStrings(items: string[]) {
   return result;
 }
 
-function loadRecentIds(key: string) {
+function loadRecentValues(key: string) {
   try {
-    const ids = JSON.parse(localStorage.getItem(key) ?? "[]");
-    return Array.isArray(ids) ? uniqueStrings(ids.filter((id): id is string => typeof id === "string")).map(normalizeName) : [];
+    const values = JSON.parse(localStorage.getItem(key) ?? "[]");
+    return Array.isArray(values)
+      ? uniqueStrings(values.filter((value): value is string => typeof value === "string"))
+      : [];
   } catch {
     return [];
   }
 }
 
-function rememberRecentIds(key: string, ids: string[], limit: number) {
-  const currentIds = uniqueStrings(ids).map(normalizeName);
-  const previousIds = loadRecentIds(key).filter((id) => !currentIds.includes(id));
-  localStorage.setItem(key, JSON.stringify([...currentIds, ...previousIds].slice(0, limit)));
+function recentKeySet(key: string) {
+  return new Set(loadRecentValues(key).map(normalizeName));
+}
+
+function rememberRecentValues(key: string, values: string[], limit: number) {
+  const current = uniqueStrings(values);
+  const currentKeys = new Set(current.map(normalizeName));
+  const previous = loadRecentValues(key).filter((value) => !currentKeys.has(normalizeName(value)));
+  localStorage.setItem(key, JSON.stringify([...current, ...previous].slice(0, limit)));
+}
+
+/**
+ * 실제로 화면에 나온 문항만 "최근 출제"로 기록합니다.
+ * 후보 풀 전체를 기록하면 한 판 만에 모든 문항이 최근 취급을 받아
+ * 다음 판에서 신선한 문항을 고를 수 없게 됩니다.
+ */
+function useShownHistory(key: string, limit: number) {
+  const shown = useRef<string[]>([]);
+  const seen = useRef(new Set<string>());
+
+  const flush = useCallback(() => {
+    if (!shown.current.length) return;
+    rememberRecentValues(key, shown.current, limit);
+    shown.current = [];
+    seen.current.clear();
+  }, [key, limit]);
+
+  // 라운드를 떠날 때(로비 이동, 새로고침 전 언마운트) 기록합니다.
+  useEffect(() => flush, [flush]);
+
+  return useCallback((value: string | undefined) => {
+    if (!value) return;
+    const id = normalizeName(value);
+    if (!id || seen.current.has(id)) return;
+    seen.current.add(id);
+    shown.current.push(value);
+  }, []);
 }
 
 function preferFresh<T>(items: T[], key: string, getId: (item: T) => string) {
-  const recentIds = new Set(loadRecentIds(key));
+  const recentIds = recentKeySet(key);
   const fresh: T[] = [];
   const recent: T[] = [];
 
   for (const item of items) {
-    if (recentIds.has(getId(item))) {
+    if (recentIds.has(normalizeName(getId(item)))) {
       recent.push(item);
     } else {
       fresh.push(item);
@@ -143,22 +191,14 @@ function findBlurAsset(item: { id?: string; name: string; image?: string; emoji?
   });
 }
 
-function loadBlurHistory() {
-  return loadRecentIds(BLUR_HISTORY_KEY);
-}
-
-function rememberBlurItems(items: BlurImageAsset[]) {
-  rememberRecentIds(BLUR_HISTORY_KEY, items.map((item) => item.id), BLUR_HISTORY_LIMIT);
-}
-
-function selectBlurItems(content: unknown) {
+function selectBlurItems(content: unknown, count: number) {
   const requestedItems = ensureList((content as BlurContent).items, 1);
   const selected: BlurImageAsset[] = [];
   const selectedIds = new Set<string>();
-  const recentIds = new Set(loadBlurHistory());
+  const recentIds = recentKeySet(BLUR_HISTORY_KEY);
 
   const addItem = (asset: BlurImageAsset) => {
-    if (selected.length >= 8 || selectedIds.has(asset.id)) return;
+    if (selected.length >= count || selectedIds.has(asset.id)) return;
     selected.push(asset);
     selectedIds.add(asset.id);
   };
@@ -173,11 +213,13 @@ function selectBlurItems(content: unknown) {
     }
   }
 
-  for (const asset of generatedItems.filter((item) => !recentIds.has(item.id)).slice(0, 3)) {
+  const isFresh = (item: BlurImageAsset) => !recentIds.has(normalizeName(item.id));
+
+  for (const asset of generatedItems.filter(isFresh).slice(0, 3)) {
     addItem(asset);
   }
 
-  for (const asset of shuffle(BLUR_IMAGE_ITEMS).filter((item) => !recentIds.has(item.id))) {
+  for (const asset of shuffle(BLUR_IMAGE_ITEMS).filter(isFresh)) {
     addItem(asset);
   }
 
@@ -189,13 +231,16 @@ function selectBlurItems(content: unknown) {
     addItem(asset);
   }
 
-  return selected.slice(0, 8);
+  return selected.slice(0, count);
 }
 
-function selectLieQuestions(content: unknown) {
+function selectLieQuestions(content: unknown, count: number) {
   const generated = ensureList((content as LieContent).questions, 5);
   const generatedQuestions = generated.length >= 5
-    ? preferFresh(generated, LIE_HISTORY_KEY, (question) => normalizeName(question.fact)).slice(0, 5)
+    ? preferFresh(generated, LIE_HISTORY_KEY, (question) => normalizeName(question.fact)).slice(
+        0,
+        Math.ceil(count / 2),
+      )
     : [];
   const fallbackQuestions = preferFresh(LIE_DETECTOR_FACTS, LIE_HISTORY_KEY, (question) => normalizeName(question.fact));
   const selected: LieDetectorQuestion[] = [];
@@ -207,7 +252,7 @@ function selectLieQuestions(content: unknown) {
 
     selected.push(question);
     seen.add(key);
-    if (selected.length >= 10) break;
+    if (selected.length >= count) break;
   }
 
   return selected;
@@ -325,14 +370,25 @@ function RoundHeader({ game, type }: { game: GameState; type: RoundType }) {
   );
 }
 
-function LoadingRound({ error, usedFallback }: { error: string; usedFallback: boolean }) {
+function LoadingRound({
+  error,
+  usedFallback,
+  onSkip,
+}: {
+  error: string;
+  usedFallback: boolean;
+  onSkip: () => void;
+}) {
   return (
     <section className="tv-panel mt-5 grid min-h-[320px] place-items-center rounded-2xl p-6 text-center">
       <div className="grid gap-4">
-        <div className="mx-auto h-16 w-16 animate-spin rounded-full border-8 border-[#FFE66D] border-t-[#FF6B6B]" />
+        <div className="mx-auto h-16 w-16 animate-spin rounded-full border-8 border-[#FFE66D] border-t-[#FF6B6B] motion-reduce:animate-none" />
         <h2 className="text-3xl font-black">Claude가 문제를 만들고 있어요...</h2>
         <p className="font-bold text-[#4A4A5E]">사회자도 모르는 새 문제를 받는 중입니다.</p>
         {usedFallback && <p className="rounded-xl bg-[#FFE3E3] p-3 font-black text-[#C92A2A]">{error}</p>}
+        <Button tone="white" onClick={onSkip}>
+          기다리지 않고 백업 문제로 시작
+        </Button>
       </div>
     </section>
   );
@@ -377,12 +433,14 @@ function SaveRoundButton({
 }
 
 function TeamPill({ team, active }: { team: Team; active?: boolean }) {
-  const color = team.color === "red" ? "#FF6B6B" : team.color === "blue" ? "#4ECDC4" : "#51CF66";
   return (
     <span
       className={`rounded-full border-3 border-[#171721] px-4 py-2 text-base font-black ${active ? "shadow-glow" : ""}`}
-      style={{ backgroundColor: color }}
+      style={{ backgroundColor: teamHex(team) }}
     >
+      <span aria-hidden className="mr-1">
+        {teamMark(team)}
+      </span>
       {team.name}
     </span>
   );
@@ -401,29 +459,35 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
   const [seconds, setSeconds] = useState(SPEED_QUIZ_SECONDS);
   const [correct, setCorrect] = useState(0);
   const [rawScores, setRawScores] = useState<Record<string, number>>({});
+  const [showResults, setShowResults] = useState(false);
   const currentTeam = teams[teamIndex];
   const currentWords = wordDecks[currentTeam.id] ?? words;
+  const currentWord = currentWords[wordIndex % currentWords.length];
+  const markShown = useShownHistory(SPEED_HISTORY_KEY, WORD_HISTORY_LIMIT);
+  // 타이머 effect가 맞힌 개수 변화 때문에 다시 시작되지 않도록 ref로 읽습니다.
+  const correctRef = useRef(0);
 
   useEffect(() => {
-    rememberRecentIds(SPEED_HISTORY_KEY, words, WORD_HISTORY_LIMIT);
-  }, [words]);
+    if (phase === "playing") markShown(currentWord);
+  }, [currentWord, markShown, phase]);
 
   useEffect(() => {
     if (phase !== "playing") return;
     if (seconds <= 0) {
       setPhase("done");
-      setRawScores((scores) => ({ ...scores, [currentTeam.id]: correct }));
+      setRawScores((scores) => ({ ...scores, [currentTeam.id]: correctRef.current }));
       return;
     }
     const timer = window.setTimeout(() => setSeconds((value) => value - 1), 1000);
     if (seconds <= 5) playBeep();
     return () => window.clearTimeout(timer);
-  }, [correct, currentTeam.id, phase, seconds]);
+  }, [currentTeam.id, phase, seconds]);
 
   const nextWord = () => setWordIndex((index) => (index + 1) % currentWords.length);
   const start = () => {
     setSeconds(SPEED_QUIZ_SECONDS);
     setCorrect(0);
+    correctRef.current = 0;
     setWordIndex(0);
     setPhase("playing");
   };
@@ -433,12 +497,11 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
       setPhase("ready");
       return;
     }
-    setPhase("done");
+    setShowResults(true);
   };
-  const allDone = Object.keys(rawScores).length === teams.length;
   const awardScores = rankAward(teams, rawScores, [10, 7, 5]);
 
-  if (allDone) {
+  if (showResults) {
     return (
       <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5">
         <h2 className="text-3xl font-black">스피드 퀴즈 결과</h2>
@@ -487,15 +550,14 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
       ) : phase === "playing" ? (
         <>
           <Countdown seconds={seconds} />
-          <div className="rounded-2xl bg-[#FFE66D] p-6 text-5xl font-black sm:text-7xl">
-            {currentWords[wordIndex % currentWords.length]}
-          </div>
+          <div className="rounded-2xl bg-[#FFE66D] p-6 text-5xl font-black sm:text-7xl">{currentWord}</div>
           <div className="grid grid-cols-2 gap-3">
             <Button
               tone="green"
               className="text-2xl"
               onClick={() => {
-                setCorrect((value) => value + 1);
+                correctRef.current += 1;
+                setCorrect(correctRef.current);
                 nextWord();
                 playCorrect();
                 correctConfetti();
@@ -522,7 +584,9 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
 }
 
 function BlurImageRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const items = useMemo(() => selectBlurItems(content), [content]);
+  // 팀마다 같은 문제 수가 돌아가도록 팀 수의 배수로 맞춥니다. (3팀이면 8문제 → 9문제)
+  const questionCount = balancedQuestionCount(8, game.teams.length, BLUR_IMAGE_ITEMS.length);
+  const items = useMemo(() => selectBlurItems(content, questionCount), [content, questionCount]);
   const blurValues = [30, 22, 14, 6, 0];
   const [index, setIndex] = useState(0);
   const [stage, setStage] = useState(0);
@@ -531,12 +595,12 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
   const [scored, setScored] = useState(false);
   const item = items[index % items.length];
   const team = game.teams[index % game.teams.length];
-  const questionCount = Math.min(8, items.length);
-  const done = index >= questionCount;
+  const done = index >= Math.min(questionCount, items.length);
+  const markShown = useShownHistory(BLUR_HISTORY_KEY, BLUR_HISTORY_LIMIT);
 
   useEffect(() => {
-    rememberBlurItems(items);
-  }, [items]);
+    if (!done) markShown(item?.id);
+  }, [done, item, markShown]);
 
   useEffect(() => {
     if (done || revealed || stage >= blurValues.length - 1) return;
@@ -633,10 +697,11 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
   const done = index >= totalQuestions;
   const question = questions[index % questions.length];
   const team = game.teams[Math.floor(index / 5)];
+  const markShown = useShownHistory(CHOSUNG_HISTORY_KEY, CHOSUNG_HISTORY_LIMIT);
 
   useEffect(() => {
-    rememberRecentIds(CHOSUNG_HISTORY_KEY, questions.map((item) => item.answers[0] ?? ""), CHOSUNG_HISTORY_LIMIT);
-  }, [questions]);
+    if (!done) markShown(question?.answers[0]);
+  }, [done, markShown, question]);
 
   useEffect(() => {
     if (done || answered) return;
@@ -731,13 +796,16 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
   const [index, setIndex] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [revealed, setRevealed] = useState(false);
+  // 한 문제에 한 팀만 득점합니다. (여러 팀이 연달아 눌러 중복 득점하던 문제)
+  const [awardedTeamId, setAwardedTeamId] = useState<string | null>(null);
   const questionCount = Math.min(10, questions.length);
   const question = questions[index % questions.length];
   const done = index >= questionCount;
+  const markShown = useShownHistory(EMOJI_HISTORY_KEY, EMOJI_HISTORY_LIMIT);
 
   useEffect(() => {
-    rememberRecentIds(EMOJI_HISTORY_KEY, questions.map((item) => item.answers[0] ?? ""), EMOJI_HISTORY_LIMIT);
-  }, [questions]);
+    if (!done) markShown(question?.answers[0]);
+  }, [done, markShown, question]);
 
   if (done) {
     return (
@@ -776,17 +844,24 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
           <Button
             key={team.id}
             tone={team.color === "red" ? "red" : team.color === "blue" ? "blue" : "green"}
+            disabled={Boolean(awardedTeamId)}
             onClick={() => {
               setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+              setAwardedTeamId(team.id);
               setRevealed(true);
               playCorrect();
               correctConfetti();
             }}
           >
-            {team.name} 정답 +5
+            {teamMark(team)} {team.name} 정답 +5
           </Button>
         ))}
       </div>
+      {awardedTeamId && (
+        <p className="rounded-xl bg-[#D3F9D8] p-3 font-black text-[#2B8A3E]">
+          이 문제는 이미 점수가 들어갔어요. 다음 문제로 넘어가세요.
+        </p>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Button tone="yellow" onClick={() => setRevealed(true)}>
           정답 보기
@@ -796,6 +871,7 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
           onClick={() => {
             setIndex((value) => value + 1);
             setRevealed(false);
+            setAwardedTeamId(null);
           }}
         >
           다음 문제
@@ -809,19 +885,22 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
 }
 
 function LieDetectorRound({ game, content, type }: { game: GameState; content: unknown; type: RoundType }) {
-  const questions = useMemo(() => selectLieQuestions(content), [content]);
+  // 팀마다 같은 문제 수가 돌아가도록 팀 수의 배수로 맞춥니다. (3팀이면 10문제 → 9문제)
+  const targetCount = balancedQuestionCount(10, game.teams.length, LIE_DETECTOR_FACTS.length);
+  const questions = useMemo(() => selectLieQuestions(content, targetCount), [content, targetCount]);
   const [index, setIndex] = useState(0);
   const [seconds, setSeconds] = useState(10);
   const [scores, setScores] = useState<Record<string, number>>({});
   const [feedback, setFeedback] = useState("");
-  const questionCount = Math.min(10, questions.length);
+  const questionCount = Math.min(targetCount, questions.length);
   const done = index >= questionCount;
   const question = questions[index % questions.length];
   const team = game.teams[index % game.teams.length];
+  const markShown = useShownHistory(LIE_HISTORY_KEY, LIE_HISTORY_LIMIT);
 
   useEffect(() => {
-    rememberRecentIds(LIE_HISTORY_KEY, questions.map((item) => item.fact), LIE_HISTORY_LIMIT);
-  }, [questions]);
+    if (!done) markShown(question?.fact);
+  }, [done, markShown, question]);
 
   useEffect(() => {
     if (done || feedback) return;
@@ -916,10 +995,12 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
   const totalQuestions = game.teams.length * wordsPerTeam;
   const done = index >= totalQuestions;
   const team = game.teams[index % game.teams.length];
+  const currentWord = words[index % words.length];
+  const markShown = useShownHistory(SILENT_HISTORY_KEY, WORD_HISTORY_LIMIT);
 
   useEffect(() => {
-    rememberRecentIds(SILENT_HISTORY_KEY, words, WORD_HISTORY_LIMIT);
-  }, [words]);
+    if (!done) markShown(currentWord);
+  }, [currentWord, done, markShown]);
 
   if (done) {
     return (
@@ -974,7 +1055,7 @@ function SilentShoutRound({ game, content, type }: { game: GameState; content: u
         헤드폰이나 음악으로 주변 소리를 막고, 첫 번째 사람에게만 단어를 보여주세요. 마지막 사람이 맞히면 +5점입니다.
       </div>
       <div className="rounded-3xl bg-[#FFE66D] p-8 text-5xl font-black sm:text-7xl">
-        {showWord ? words[index % words.length] : "단어 숨김"}
+        {showWord ? currentWord : "단어 숨김"}
       </div>
       <div className="grid gap-3 sm:grid-cols-3">
         <Button tone="yellow" onClick={() => setShowWord((value) => !value)}>
@@ -1014,26 +1095,30 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
   const [seconds, setSeconds] = useState(60);
   const [correct, setCorrect] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
+  const [showResults, setShowResults] = useState(false);
   const team = game.teams[teamIndex];
-  const allDone = Object.keys(scores).length === game.teams.length;
+  const currentWord = words[wordIndex % words.length];
+  const markShown = useShownHistory(CHARADES_HISTORY_KEY, WORD_HISTORY_LIMIT);
+  // 타이머 effect가 맞힌 개수 변화 때문에 다시 시작되지 않도록 ref로 읽습니다.
+  const correctRef = useRef(0);
 
   useEffect(() => {
-    rememberRecentIds(CHARADES_HISTORY_KEY, words, WORD_HISTORY_LIMIT);
-  }, [words]);
+    if (phase === "playing") markShown(currentWord);
+  }, [currentWord, markShown, phase]);
 
   useEffect(() => {
     if (phase !== "playing") return;
     if (seconds <= 0) {
-      setScores((value) => ({ ...value, [team.id]: correct * 5 }));
+      setScores((value) => ({ ...value, [team.id]: correctRef.current * 5 }));
       setPhase("done");
       return;
     }
     const timer = window.setTimeout(() => setSeconds((value) => value - 1), 1000);
     if (seconds <= 5) playBeep();
     return () => window.clearTimeout(timer);
-  }, [correct, phase, seconds, team.id]);
+  }, [phase, seconds, team.id]);
 
-  if (allDone) {
+  if (showResults) {
     return (
       <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5">
         <h2 className="text-3xl font-black">몸으로 말해요 결과</h2>
@@ -1061,9 +1146,14 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
   const start = () => {
     setSeconds(60);
     setCorrect(0);
+    correctRef.current = 0;
     setPhase("playing");
   };
   const nextTeam = () => {
+    if (teamIndex >= game.teams.length - 1) {
+      setShowResults(true);
+      return;
+    }
     setTeamIndex((value) => value + 1);
     setPhase("ready");
   };
@@ -1083,15 +1173,14 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
       ) : phase === "playing" ? (
         <>
           <Countdown seconds={seconds} />
-          <div className="rounded-3xl bg-[#FFE66D] p-8 text-5xl font-black sm:text-7xl">
-            {words[wordIndex % words.length]}
-          </div>
+          <div className="rounded-3xl bg-[#FFE66D] p-8 text-5xl font-black sm:text-7xl">{currentWord}</div>
           <div className="grid grid-cols-2 gap-3">
             <Button
               tone="green"
               className="text-2xl"
               onClick={() => {
-                setCorrect((value) => value + 1);
+                correctRef.current += 1;
+                setCorrect(correctRef.current);
                 setWordIndex((value) => value + 1);
                 playCorrect();
                 correctConfetti();
@@ -1109,7 +1198,7 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
         <>
           <p className="rounded-xl bg-[#D3F9D8] p-5 text-3xl font-black">{team.name} +{correct * 5}점!</p>
           <Button tone="blue" className="text-2xl" onClick={nextTeam}>
-            다음 팀
+            {teamIndex < game.teams.length - 1 ? "다음 팀" : "결과 보기"}
           </Button>
         </>
       )}
@@ -1213,20 +1302,29 @@ export default function RoundPage() {
   const [usedFallback, setUsedFallback] = useState(false);
   const [modelUsed, setModelUsed] = useState("");
   const valid = roundTypes.includes(roundType);
+  // 사회자가 기다리지 않고 백업 문제로 시작하면, 뒤늦게 도착한 응답이 화면을 덮지 않게 합니다.
+  const skippedRef = useRef(false);
 
   const round = useMemo(() => (valid ? getRoundInfo(roundType) : undefined), [roundType, valid]);
+
+  useScreenWakeLock(valid);
 
   useEffect(() => {
     let mounted = true;
     if (!valid) return;
 
+    skippedRef.current = false;
     setLoading(true);
     setContent(null);
     setUsedFallback(false);
     setError("");
     setModelUsed("");
-    generateRoundContent(roundType).then((result) => {
-      if (!mounted) return;
+
+    const historyKey = HISTORY_KEY_BY_ROUND[roundType];
+    const avoid = historyKey ? loadRecentValues(historyKey).slice(0, 40) : [];
+
+    generateRoundContent(roundType, avoid).then((result) => {
+      if (!mounted || skippedRef.current) return;
       setContent(result.data);
       setUsedFallback(result.usedFallback);
       setError(result.error);
@@ -1239,12 +1337,21 @@ export default function RoundPage() {
     };
   }, [roundType, valid]);
 
+  const startWithFallback = useCallback(() => {
+    skippedRef.current = true;
+    setContent(FALLBACK_CONTENT[roundType]);
+    setUsedFallback(true);
+    setError("사회자가 기다리지 않고 백업 문제로 시작했습니다.");
+    setModelUsed("");
+    setLoading(false);
+  }, [roundType]);
+
   if (!valid || !round) return <Navigate to="/lobby" replace />;
   if (!game) return <Navigate to="/setup" replace />;
 
   let body = null;
   if (loading || !content) {
-    body = <LoadingRound error={error} usedFallback={usedFallback} />;
+    body = <LoadingRound error={error} usedFallback={usedFallback} onSkip={startWithFallback} />;
   } else if (roundType === "speed_quiz") {
     body = <SpeedQuizRound game={game} content={content} type={roundType} />;
   } else if (roundType === "blur_image") {
