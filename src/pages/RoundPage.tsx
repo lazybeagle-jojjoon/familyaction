@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import Button from "../components/Button";
+import MusicToggle from "../components/MusicToggle";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
 import StrokePad from "../components/StrokePad";
@@ -532,9 +533,12 @@ function RoundHeader({ game, type }: { game: GameState; type: RoundType }) {
         >
           ← 로비
         </Link>
-        <span className="rounded-full bg-[#FFE66D] px-4 py-2 text-sm font-black">
-          {round?.tag ?? "라운드"}
-        </span>
+        <div className="flex items-center gap-2">
+          <MusicToggle />
+          <span className="rounded-full bg-[#FFE66D] px-4 py-2 text-sm font-black">
+            {round?.tag ?? "라운드"}
+          </span>
+        </div>
       </div>
       <section className="tv-panel rounded-2xl p-4 sm:p-5">
         <div className="flex items-center gap-3">

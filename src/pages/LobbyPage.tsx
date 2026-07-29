@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import Button from "../components/Button";
+import MusicToggle from "../components/MusicToggle";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
 import { getRoundInfo, ROUND_INFOS } from "../data/rounds";
@@ -56,9 +57,12 @@ export default function LobbyPage() {
         <Link to="/" className="rounded-full bg-white px-4 py-2 text-sm font-black shadow">
           ← 처음으로
         </Link>
-        <span className="rounded-full bg-[#FF6B6B] px-4 py-2 text-sm font-black text-[#171721]">
-          메인 허브
-        </span>
+        <div className="flex items-center gap-2">
+          <MusicToggle showTrack />
+          <span className="rounded-full bg-[#FF6B6B] px-4 py-2 text-sm font-black text-[#171721]">
+            메인 허브
+          </span>
+        </div>
       </div>
 
       <div className="grid gap-5">

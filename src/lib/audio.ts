@@ -1,3 +1,5 @@
+import { duckMusic } from "./music";
+
 let audioContext: AudioContext | null = null;
 
 function getAudioContext() {
@@ -28,6 +30,7 @@ export function playClick() {
 }
 
 export function playCorrect() {
+  duckMusic();
   tone(660, 0.09, "sine", 0.12);
   window.setTimeout(() => tone(880, 0.11, "sine", 0.12), 95);
 }
@@ -41,6 +44,7 @@ export function playBeep() {
 }
 
 export function playFanfare() {
+  duckMusic(3);
   [523, 659, 784, 1047, 784, 1047].forEach((freq, index) => {
     window.setTimeout(() => tone(freq, 0.16, "triangle", 0.16), index * 130);
   });
