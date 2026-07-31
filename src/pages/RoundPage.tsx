@@ -39,6 +39,26 @@ type ChosungContent = { questions?: ChosungQuestion[] };
 type EmojiContent = { questions?: EmojiQuizQuestion[] };
 type LieContent = { questions?: LieDetectorQuestion[] };
 
+/**
+ * 라운드마다 한 팀이 받을 수 있는 최대 점수를 24점 근처로 맞춥니다.
+ *
+ * 예전에는 수상한 한 칸이 6점, 흐릿한 이미지가 60점이어서 어떤 라운드를 고르느냐가
+ * 실력보다 순위를 크게 좌우했어요. 이제 어느 라운드를 몇 개 하든 비슷한 무게입니다.
+ * 팀별로 문항이 도는 라운드는 (팀당 문항 수 × 문항당 점수)가 24가 되게 잡았습니다.
+ */
+const ROUND_MAX_PER_TEAM = 24;
+
+// 팀당 문항이 3개인 라운드는 8점, 4개면 6점, 5개면 5점 안팎으로 둡니다.
+const EMOJI_POINT = 8;        // 팀 수 배수 9문제, 선착순
+const MEMORY_POINT = 8;       // 팀당 3문제
+const SEQUENCE_POINT = 8;     // 팀당 3문제 (두 장만 바뀌었으면 3점)
+const SEQUENCE_PARTIAL = 3;
+const LIST_POINT = 8;         // 팀당 3문제
+const DRAWING_POINT = 8;      // 팀당 3문제
+const REVERSE_POINT = 6;      // 팀당 4문제
+const VAULT_CLUE_POINT = 3;   // 3금고 × (단서 3 + 열기 5) = 24
+const VAULT_OPEN_POINT = 5;
+
 const SPEED_QUIZ_SECONDS = 120;
 // 몸짓은 설명보다 오래 걸려서 2분을 줍니다. 대신 개당 점수는 낮춰 스피드 퀴즈와 균형을 맞춥니다.
 const CHARADES_SECONDS = 120;
@@ -60,7 +80,7 @@ const CHOSUNG_MAX_SCALE = 5;
 // 같은 거짓말이 첫 수비 때는 공짜고 나중에는 3점이 되는 이상한 규칙이 됐어요.
 // 지금은 공격팀에게 그만큼 더 줍니다. 벌어지는 점수 차이는 똑같이 8점이고,
 // 순서에 상관없이 대가가 같습니다.
-const INTERVIEW_POINT = 5;
+const INTERVIEW_POINT = 6;
 const INTERVIEW_LIE_BONUS = 3;
 function chosungLength(chosung: string) {
   return chosung.replace(/\s/g, "").length;
@@ -840,6 +860,8 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
   const questionCount = balancedQuestionCount(8, game.teams.length, blurPool().length);
   const items = useMemo(() => selectBlurItems(content, questionCount), [content, questionCount]);
   const blurValues = [30, 22, 14, 6, 0];
+  // 단계마다 8/6/4/2점. 팀당 세 문제라 한 번도 안 틀리면 24점입니다.
+  const blurPoints = [8, 6, 4, 2, 0];
   const [index, setIndex] = useState(0);
   const [stage, setStage] = useState(0);
   const [scores, setScores] = useState<Record<string, number>>({});
@@ -864,7 +886,7 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
   const markCorrect = () => {
     if (scored) return;
 
-    const points = Math.max(0, (blurValues.length - stage - 1) * 5);
+    const points = blurPoints[stage] ?? 0;
     setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
     setRevealed(true);
     setScored(true);
@@ -894,7 +916,7 @@ function BlurImageRound({ game, content, type }: { game: GameState; content: unk
             roundType: type,
             playedAt: new Date().toISOString(),
             teamScores: scores,
-            note: "남은 흐림 단계에 따라 20/15/10/5점",
+            note: "남은 흐림 단계에 따라 8/6/4/2점",
           }}
         >
           점수 입력 확인
@@ -1081,7 +1103,8 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
   // 한 문제에 한 팀만 득점합니다. (여러 팀이 연달아 눌러 중복 득점하던 문제)
   const [awardedTeamId, setAwardedTeamId] = useState<string | null>(null);
   const [stopped, setStopped] = useState(false);
-  const questionCount = Math.min(10, questions.length);
+  // 팀 수의 배수로 맞춰야 선착순이어도 기회가 고르게 돌아갑니다. (3팀이면 9문제)
+  const questionCount = balancedQuestionCount(9, game.teams.length, questions.length);
   const question = questions[index % questions.length];
   const done = stopped || index >= questionCount;
   const markShown = useShownHistory(EMOJI_HISTORY_KEY, EMOJI_HISTORY_LIMIT);
@@ -1106,7 +1129,7 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
             roundType: type,
             playedAt: new Date().toISOString(),
             teamScores: scores,
-            note: "정답을 외친 팀에게 5점",
+            note: `정답을 외친 팀에게 ${EMOJI_POINT}점`,
           }}
         >
           점수 입력 확인
@@ -1138,7 +1161,7 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
             tone={team.color === "red" ? "red" : team.color === "blue" ? "blue" : "green"}
             disabled={Boolean(awardedTeamId)}
             onClick={() => {
-              setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+              setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + EMOJI_POINT }));
               setAwardedTeamId(team.id);
               setRevealed(true);
               playCorrect();
@@ -1201,7 +1224,8 @@ function LieDetectorRound({ game, content, type }: { game: GameState; content: u
     playWrong();
   }, [question]);
 
-  const seconds = useDeadlineCountdown(started && !done && !feedback, 10, timeUp, index);
+  // 남은 초가 곧 점수라, 제한 시간이 그대로 문항당 상한이 됩니다. 팀당 세 문제 × 8점.
+  const seconds = useDeadlineCountdown(started && !done && !feedback, 8, timeUp, index);
 
   const answer = (choice: boolean) => {
     const isCorrect = choice === question.isTrue;
@@ -1634,7 +1658,7 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
               tone="green"
               disabled={scored}
               onClick={() => {
-                setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+                setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + MEMORY_POINT }));
                 setScored(true);
                 setPhase("revealed");
                 playCorrect();
@@ -1745,10 +1769,10 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
     // 배열이 아직 안 채워졌을 때 채점하면 빈 배열의 every()가 참이라 만점이 됩니다.
     if (!card || arrangement.length !== card.ordered.length) return 0;
     const correct = arrangement.every((item, position) => item === card.ordered[position]);
-    if (correct) return 5;
+    if (correct) return SEQUENCE_POINT;
     // 붙어 있는 두 장만 뒤바뀐 아까운 경우는 절반 점수를 줍니다.
     const wrong = arrangement.map((item, position) => (item === card.ordered[position] ? -1 : position)).filter((p) => p >= 0);
-    if (wrong.length === 2 && wrong[1] - wrong[0] === 1) return 2;
+    if (wrong.length === 2 && wrong[1] - wrong[0] === 1) return SEQUENCE_PARTIAL;
     return 0;
   }, [arrangement, card]);
 
@@ -1770,7 +1794,7 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
         type={type}
         title="순서 맞추기 결과"
         scores={scores}
-        note="정확히 맞히면 5점, 두 장만 바뀌었으면 2점"
+        note={`정확히 맞히면 ${SEQUENCE_POINT}점, 두 장만 바뀌었으면 ${SEQUENCE_PARTIAL}점`}
       />
     );
   }
@@ -2252,7 +2276,7 @@ function ListRaceRound({ game, type }: { game: GameState; type: RoundType }) {
     if (scoredRef.current) return;
     scoredRef.current = true;
     if (success) {
-      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + LIST_POINT }));
       playCorrect();
       correctConfetti();
     } else {
@@ -2402,7 +2426,7 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
     if (scoredRef.current) return;
     scoredRef.current = true;
     if (success) {
-      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + REVERSE_POINT }));
       playCorrect();
       correctConfetti();
     } else {
@@ -2562,7 +2586,7 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
   const markClue = (correct: boolean) => {
     const entry = clues[clueIndex];
     if (correct && entry) {
-      setScores((value) => ({ ...value, [entry.team.id]: (value[entry.team.id] ?? 0) + 2 }));
+      setScores((value) => ({ ...value, [entry.team.id]: (value[entry.team.id] ?? 0) + VAULT_CLUE_POINT }));
       playCorrect();
     } else {
       playWrong();
@@ -2578,7 +2602,7 @@ function VaultRound({ game, type }: { game: GameState; type: RoundType }) {
     if (success) {
       setScores((value) => {
         const next = { ...value };
-        for (const team of teams) next[team.id] = (next[team.id] ?? 0) + 3;
+        for (const team of teams) next[team.id] = (next[team.id] ?? 0) + VAULT_OPEN_POINT;
         return next;
       });
       playCorrect();
@@ -2787,7 +2811,7 @@ function DrawingRound({ game, type }: { game: GameState; type: RoundType }) {
     scoredRef.current = true;
     setResolved(true);
     if (success) {
-      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
+      setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + DRAWING_POINT }));
       playCorrect();
       correctConfetti();
     } else {
@@ -2913,9 +2937,9 @@ function CargoRound({ game, type }: { game: GameState; type: RoundType }) {
 
   const pointsFor = (value: number) => {
     if (value > LIMIT) return 0;
-    if (value >= 5) return 3;
-    if (value >= 3) return 2;
-    return value >= 1 ? 1 : 0;
+    if (value >= 5) return 8;
+    if (value >= 3) return 5;
+    return value >= 1 ? 2 : 0;
   };
 
   const draw = () => {
@@ -2955,7 +2979,7 @@ function CargoRound({ game, type }: { game: GameState; type: RoundType }) {
         type={type}
         title="멈출까? 짐칸 6 결과"
         scores={scores}
-        note="5~6은 3점, 3~4는 2점, 1~2는 1점, 6 초과는 0점"
+        note="5~6은 8점, 3~4는 5점, 1~2는 2점, 6 초과는 0점"
       />
     );
   }
@@ -3061,7 +3085,7 @@ function OddGridRound({ game, type }: { game: GameState; type: RoundType }) {
 
     if (cell === puzzle.answerIndex) {
       // 첫 번에 찾으면 2점, 두 번째에 찾으면 1점.
-      const points = tries === 0 ? 2 : tries === 1 ? 1 : 0;
+      const points = tries === 0 ? 8 : tries === 1 ? 4 : 0;
       setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
       setFinished(true);
       playCorrect();
@@ -3083,7 +3107,7 @@ function OddGridRound({ game, type }: { game: GameState; type: RoundType }) {
         type={type}
         title="수상한 한 칸 결과"
         scores={scores}
-        note="한 번에 찾으면 2점, 두 번째에 찾으면 1점"
+        note="한 번에 찾으면 8점, 두 번째에 찾으면 4점"
       />
     );
   }
@@ -3210,7 +3234,7 @@ function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
         type={type}
         title="한말 두 얼굴 결과"
         scores={scores}
-        note="서로 다른 뜻으로 만든 문장 하나당 2점"
+        note="두 뜻 다 살리면 8점, 하나만 살리면 4점"
       />
     );
   }
@@ -3241,10 +3265,10 @@ function HomonymRound({ game, type }: { game: GameState; type: RoundType }) {
 
       {phase !== "ready" && (
         <div className="grid gap-3 sm:grid-cols-3">
-          <Button tone="green" className="text-xl" disabled={scoredRef.current} onClick={() => judge(4)}>
+          <Button tone="green" className="text-xl" disabled={scoredRef.current} onClick={() => judge(8)}>
             둘 다 성공 +4
           </Button>
-          <Button tone="yellow" className="text-xl" disabled={scoredRef.current} onClick={() => judge(2)}>
+          <Button tone="yellow" className="text-xl" disabled={scoredRef.current} onClick={() => judge(4)}>
             하나만 +2
           </Button>
           <Button tone="red" className="text-xl" disabled={scoredRef.current} onClick={() => judge(0)}>
@@ -3336,7 +3360,7 @@ function PoolFinaleRound({ game, type }: { game: GameState; type: RoundType }) {
     return () => window.clearTimeout(timer);
   }, [running, seconds]);
 
-  const awards = rankAward(game.teams, counts, [30, 20, 10]);
+  const awards = rankAward(game.teams, counts, [24, 16, 8]);
   const totalPicked = game.teams.reduce((sum, team) => sum + (counts[team.id] ?? 0), 0);
   const overCoinLimit = totalPicked > POOL_FINALE_COINS;
 
@@ -3415,7 +3439,7 @@ function PoolFinaleRound({ game, type }: { game: GameState; type: RoundType }) {
               roundType: type,
               playedAt: new Date().toISOString(),
               teamScores: awards,
-              note: "보물찾기 순위 30/20/10점",
+              note: "보물찾기 순위 24/16/8점",
             }}
           >
             점수 입력 확인
