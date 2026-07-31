@@ -12,7 +12,6 @@ import { EMOJI_QUIZ_QUESTIONS, type EmojiQuizQuestion } from "../data/emojiQuizQ
 import { FALLBACK_CONTENT } from "../data/fallbacks";
 import { LIE_DETECTOR_FACTS, type LieDetectorQuestion } from "../data/lieDetectorFacts";
 import { HOMONYM_CARDS } from "../data/homonymCards";
-import { HUM_SONGS, type HumSong } from "../data/humSongs";
 import { MEMORY_THEMES } from "../data/memoryThemes";
 import { LIST_CHALLENGES, type ListChallenge } from "../data/listChallenges";
 import { NUNCHI_PROMPTS, type NunchiPrompt } from "../data/nunchiPrompts";
@@ -40,7 +39,24 @@ type ChosungContent = { questions?: ChosungQuestion[] };
 type EmojiContent = { questions?: EmojiQuizQuestion[] };
 type LieContent = { questions?: LieDetectorQuestion[] };
 
-const SPEED_QUIZ_SECONDS = 180;
+const SPEED_QUIZ_SECONDS = 120;
+// 몸짓은 설명보다 오래 걸려서 2분을 줍니다. 대신 개당 점수는 낮춰 스피드 퀴즈와 균형을 맞춥니다.
+const CHARADES_SECONDS = 120;
+const CHARADES_POINT = 2;
+
+/**
+ * 초성 퀴즈는 글자 수만큼 어려워집니다. 두 글자에 30초를 주면 너무 헐렁하고,
+ * 다섯 글자를 같은 점수로 치면 손해예요. 그래서 글자 수를 그대로 점수로 쓰고
+ * 제한 시간도 글자당 8초로 맞춥니다. (2자 = 16초 2점, 4자 = 32초 4점)
+ */
+const CHOSUNG_SECONDS_PER_CHAR = 8;
+
+// 금지어를 피하려고 없는 사실을 지어내면 게임이 성립하지 않아서 감점합니다.
+const INTERVIEW_POINT = 5;
+const INTERVIEW_LIE_PENALTY = 3;
+function chosungLength(chosung: string) {
+  return chosung.replace(/\s/g, "").length;
+}
 const POOL_FINALE_COINS = 30;
 const BLUR_HISTORY_KEY = "poolvilla_blur_recent_ids";
 const BLUR_HISTORY_LIMIT = 80;
@@ -74,7 +90,6 @@ const roundTypes: RoundType[] = [
   "lie_detector",
   "memory_thief",
   "sequence_order",
-  "hum_song",
   "trap_interview",
   "nunchi_allin",
   "list_race",
@@ -91,7 +106,6 @@ const roundTypes: RoundType[] = [
 
 const MEMORY_HISTORY_KEY = "poolvilla_memory_recent";
 const SEQUENCE_HISTORY_KEY = "poolvilla_sequence_recent";
-const HUM_HISTORY_KEY = "poolvilla_hum_recent";
 const TRAP_HISTORY_KEY = "poolvilla_trap_recent";
 const NUNCHI_HISTORY_KEY = "poolvilla_nunchi_recent";
 const LIST_HISTORY_KEY = "poolvilla_list_recent";
@@ -727,7 +741,9 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
     }
     setShowResults(true);
   };
-  const awardScores = rankAward(teams, rawScores, [10, 7, 5]);
+  // 맞힌 개수가 곧 점수입니다. 순위 보너스를 쓰면 1개 차이가 3점 차이로 뻥튀기돼서
+  // 한 판에 몰아주는 느낌이 강했어요.
+  const awardScores = rawScores;
 
   if (showResults) {
     return (
@@ -749,7 +765,7 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
             roundType: type,
             playedAt: new Date().toISOString(),
             teamScores: awardScores,
-            note: "맞힌 개수 순위 보너스 10/7/5점",
+            note: "맞힌 개수 1개당 1점",
           }}
         >
           점수 입력 확인
@@ -769,10 +785,10 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
       {phase === "ready" ? (
         <>
           <p className="rounded-xl bg-[#F6FBFF] p-4 text-lg font-bold">
-            설명하는 사람만 화면을 보고, 나머지는 정답을 외쳐요. 3분 동안 맞힌 개수를 셉니다. 팀마다 단어 순서는 새로 섞입니다.
+            설명하는 사람만 화면을 보고, 나머지는 정답을 외쳐요. 2분 동안 맞힌 개수가 그대로 점수예요. 팀마다 단어 순서는 새로 섞입니다.
           </p>
           <Button tone="red" className="text-2xl" onClick={start}>
-            3분 시작
+            2분 시작
           </Button>
         </>
       ) : phase === "playing" ? (
@@ -797,7 +813,7 @@ function SpeedQuizRound({ game, content, type }: { game: GameState; content: unk
               패스
             </Button>
           </div>
-          <p className="text-2xl font-black">현재 {correct}개</p>
+          <p className="text-2xl font-black">현재 {correct}개 · 예상 +{correct}점</p>
         </>
       ) : (
         <>
@@ -949,7 +965,14 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
     playWrong();
   }, []);
 
-  const seconds = useDeadlineCountdown(!done && !answered, 30, timeUp, index);
+  const letters = chosungLength(question?.chosung ?? "");
+  const points = letters;
+  const seconds = useDeadlineCountdown(
+    !done && !answered,
+    letters * CHOSUNG_SECONDS_PER_CHAR,
+    timeUp,
+    index,
+  );
 
   const next = () => {
     setIndex((value) => value + 1);
@@ -973,7 +996,7 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
             roundType: type,
             playedAt: new Date().toISOString(),
             teamScores: scores,
-            note: "정답 1개당 3점",
+            note: "글자 수만큼 점수 (2자 2점 ~ 5자 5점)",
           }}
         >
           점수 입력 확인
@@ -993,19 +1016,22 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
       />
       <Countdown seconds={seconds} />
       <div className="rounded-3xl bg-[#4ECDC4] p-8 text-7xl font-black sm:text-9xl">{question.chosung}</div>
+      <p className="text-lg font-black text-[#4A4A5E]">
+        {letters}글자 · 맞히면 +{points}점 · {letters * CHOSUNG_SECONDS_PER_CHAR}초
+      </p>
       <div className="grid gap-3 sm:grid-cols-4">
         <Button
           tone="green"
           disabled={answered}
           onClick={() => {
-            setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 3 }));
+            setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + points }));
             setAnswered(true);
             setRevealed(true);
             playCorrect();
             correctConfetti();
           }}
         >
-          정답 +3
+          정답 +{points}
         </Button>
         <Button
           tone="red"
@@ -1092,6 +1118,10 @@ function EmojiRound({ game, content, type }: { game: GameState; content: unknown
         onFinish={() => setStopped(true)}
       />
       <div className="rounded-3xl bg-white p-8 text-7xl leading-tight sm:text-9xl">{question.emoji}</div>
+      {/* 이모지만으로는 범위가 너무 넓어서, 갈래와 글자 수를 같이 줍니다. */}
+      <p className="rounded-xl bg-[#FFF3BF] p-4 text-2xl font-black">
+        {question.category} · {question.answers[0].replace(/\s/g, "").length}글자
+      </p>
       <div className="grid gap-3 sm:grid-cols-3">
         {game.teams.map((team) => (
           <Button
@@ -1374,11 +1404,11 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
   }, [currentWord, markShown, phase]);
 
   const finishTurn = useCallback(() => {
-    setScores((value) => ({ ...value, [team.id]: correctRef.current * 5 }));
+    setScores((value) => ({ ...value, [team.id]: correctRef.current * CHARADES_POINT }));
     setPhase("done");
   }, [team.id]);
 
-  const seconds = useDeadlineCountdown(phase === "playing", 60, finishTurn, teamIndex);
+  const seconds = useDeadlineCountdown(phase === "playing", CHARADES_SECONDS, finishTurn, teamIndex);
 
   if (showResults) {
     return (
@@ -1396,7 +1426,7 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
             roundType: type,
             playedAt: new Date().toISOString(),
             teamScores: scores,
-            note: "맞힌 개수당 5점",
+            note: `맞힌 개수당 ${CHARADES_POINT}점`,
           }}
         >
           점수 입력 확인
@@ -1425,10 +1455,10 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
       {phase === "ready" ? (
         <>
           <p className="rounded-xl bg-[#F6FBFF] p-4 text-lg font-bold">
-            표현하는 사람만 단어를 보고, 말 없이 몸짓으로 설명합니다. 1분 동안 맞힌 개수가 점수예요.
+            표현하는 사람만 단어를 보고, 말 없이 몸짓으로 설명합니다. 2분 동안 맞힌 개수 × 2점이에요.
           </p>
           <Button tone="red" className="text-2xl" onClick={start}>
-            1분 시작
+            2분 시작
           </Button>
         </>
       ) : phase === "playing" ? (
@@ -1453,11 +1483,11 @@ function CharadesRound({ game, content, type }: { game: GameState; content: unkn
               패스
             </Button>
           </div>
-          <p className="text-2xl font-black">현재 {correct}개 · 예상 +{correct * 5}점</p>
+          <p className="text-2xl font-black">현재 {correct}개 · 예상 +{correct * CHARADES_POINT}점</p>
         </>
       ) : (
         <>
-          <p className="rounded-xl bg-[#D3F9D8] p-5 text-3xl font-black">{team.name} +{correct * 5}점!</p>
+          <p className="rounded-xl bg-[#D3F9D8] p-5 text-3xl font-black">{team.name} +{correct * CHARADES_POINT}점!</p>
           <Button tone="blue" className="text-2xl" onClick={nextTeam}>
             {teamIndex < game.teams.length - 1 ? "다음 팀" : "결과 보기"}
           </Button>
@@ -1797,122 +1827,6 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
   );
 }
 
-/** 콧노래 대결 — 아이 곡·부모 곡·공통 곡을 한 번씩 맡아 흥얼거립니다. */
-function HumSongRound({ game, type }: { game: GameState; type: RoundType }) {
-  const teams = game.teams;
-  const bands: HumSong["band"][] = ["child", "parent", "shared"];
-  const bandLabel: Record<HumSong["band"], string> = {
-    child: "아이가 부르기",
-    parent: "어른이 부르기",
-    shared: "아무나 부르기",
-  };
-  const totalQuestions = teams.length * bands.length;
-
-  const songs = useMemo(() => {
-    const picked: HumSong[] = [];
-    for (let block = 0; block < bands.length; block += 1) {
-      const band = bands[block];
-      const pool = preferFresh(
-        HUM_SONGS.filter((song) => song.band === band),
-        HUM_HISTORY_KEY,
-        (song) => song.id,
-      );
-      for (let seat = 0; seat < teams.length; seat += 1) {
-        picked.push(pool[seat % pool.length]);
-      }
-    }
-    return picked;
-  }, [teams.length]);
-
-  const [index, setIndex] = useState(0);
-  const [phase, setPhase] = useState<"ready" | "singing" | "done">("ready");
-  const [scores, setScores] = useState<Record<string, number>>({});
-  const [showTitle, setShowTitle] = useState(false);
-  const [stopped, setStopped] = useState(false);
-  const done = stopped || index >= totalQuestions;
-  const song = songs[index % songs.length];
-  const block = Math.floor(index / teams.length);
-  const team = teams[(index + block) % teams.length];
-  const markShown = useShownHistory(HUM_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
-
-  useEffect(() => {
-    if (!done) markShown(song?.id);
-  }, [done, markShown, song]);
-
-  const timeUp = useCallback(() => setPhase("done"), []);
-  const seconds = useDeadlineCountdown(phase === "singing", 30, timeUp, index);
-
-  const next = () => {
-    setIndex((value) => value + 1);
-    setPhase("ready");
-    setShowTitle(false);
-  };
-
-  if (done) {
-    return <RoundResult game={game} type={type} title="콧노래 대결 결과" scores={scores} note="맞힌 곡마다 5점" />;
-  }
-
-  return (
-    <section className="tv-panel mt-5 grid gap-5 rounded-2xl p-5 text-center">
-      <TeamPill team={team} active />
-      <p className="text-xl font-black">
-        {index + 1} / {totalQuestions} 곡 · {bandLabel[song.band]}
-      </p>
-      <EarlyFinish
-        ready={phase === "ready" && evenTurns(index, teams.length) > 0}
-        done={evenTurns(index, teams.length)}
-        onFinish={() => setStopped(true)}
-      />
-      <p className="rounded-xl bg-[#F6FBFF] p-4 font-bold leading-7">
-        부를 사람만 화면을 보세요. 가사 없이 &ldquo;음음음&rdquo; 또는 &ldquo;라라라&rdquo;로만 부릅니다.
-      </p>
-
-      <div className="rounded-3xl bg-[#FFE66D] p-6 text-3xl font-black sm:text-5xl">
-        {showTitle ? song.title : "곡 숨김"}
-      </div>
-      {/* 노래가 시작되면 제목이 보이면 안 되므로 공개 버튼을 잠급니다. */}
-      <Button tone="yellow" disabled={phase !== "ready"} onClick={() => setShowTitle((value) => !value)}>
-        {showTitle ? "곡 숨기기" : "부를 사람만 보기"}
-      </Button>
-
-      {phase === "ready" && (
-        <Button
-          tone="red"
-          className="text-2xl"
-          onClick={() => {
-            setShowTitle(false);
-            setPhase("singing");
-          }}
-        >
-          30초 시작
-        </Button>
-      )}
-      {phase === "singing" && <Countdown seconds={seconds} />}
-
-      {phase !== "ready" && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Button
-            tone="green"
-            className="text-2xl"
-            disabled={phase === "done"}
-            onClick={() => {
-              setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + 5 }));
-              playCorrect();
-              correctConfetti();
-              next();
-            }}
-          >
-            맞혔어요 +5
-          </Button>
-          <Button tone="white" className="text-2xl" onClick={next}>
-            {phase === "done" ? "시간 종료 · 다음 곡" : "패스"}
-          </Button>
-        </div>
-      )}
-    </section>
-  );
-}
-
 /** 말하면 지는 인터뷰 — 팀마다 공격 2회·방어 2회로 정확히 균등합니다. */
 function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }) {
   const teams = game.teams;
@@ -1959,13 +1873,24 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
   const judgedRef = useRef(false);
 
   const award = useCallback(
-    (attackerWon: boolean, reason: string) => {
+    // penalty가 붙으면 진 쪽의 점수를 깎습니다. 다만 이 라운드에서 번 점수 아래로는
+    // 내려가지 않게 막아요. 총점이 마이너스가 되면 아이들이 바로 의욕을 잃더라고요.
+    (attackerWon: boolean, reason: string, penalty = 0) => {
       if (judgedRef.current) return;
       judgedRef.current = true;
 
       const winner = attackerWon ? matchup.attacker : matchup.defender;
-      setScores((value) => ({ ...value, [winner.id]: (value[winner.id] ?? 0) + 5 }));
-      setVerdict(`${reason} — ${winner.name} +5`);
+      const loser = attackerWon ? matchup.defender : matchup.attacker;
+      setScores((value) => {
+        const next = { ...value, [winner.id]: (value[winner.id] ?? 0) + INTERVIEW_POINT };
+        if (penalty) next[loser.id] = Math.max(0, (value[loser.id] ?? 0) - penalty);
+        return next;
+      });
+      setVerdict(
+        penalty
+          ? `${reason} — ${winner.name} +${INTERVIEW_POINT}, ${loser.name} -${penalty}`
+          : `${reason} — ${winner.name} +${INTERVIEW_POINT}`,
+      );
       setPhase("judged");
       playCorrect();
       correctConfetti();
@@ -1984,7 +1909,7 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
         type={type}
         title="말하면 지는 인터뷰 결과"
         scores={scores}
-        note="팀마다 공격 2회·방어 2회, 이긴 쪽 5점"
+        note={`팀마다 공격 2회·방어 2회, 이긴 쪽 +${INTERVIEW_POINT} / 거짓말 -${INTERVIEW_LIE_PENALTY}`}
       />
     );
   }
@@ -2007,6 +1932,11 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
       <p className="rounded-xl bg-[#F6FBFF] p-4 text-left font-bold leading-7">
         공격팀만 화면을 봅니다. 30초 안에 상대가 금지어를 말하게 유도하세요.
         방어팀은 3초 안에 계속 대답해야 하고, 금지어를 말하면 집니다.
+        <br />
+        <span className="text-[#C92A2A]">
+          단, 금지어를 피하려고 사실이 아닌 말을 하면 안 됩니다. (친구인데 모녀라고 하기 같은 것)
+          거짓말이 들통나면 공격팀 +{INTERVIEW_POINT}, 방어팀 -{INTERVIEW_LIE_PENALTY}입니다.
+        </span>
       </p>
 
       <div className="rounded-3xl border-4 border-[#171721] bg-white p-5">
@@ -2042,12 +1972,19 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
       {phase === "interview" && <Countdown seconds={seconds} />}
 
       {phase === "interview" && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-3">
           <Button tone="green" className="text-xl" onClick={() => award(true, "금지어를 말했습니다")}>
-            금지어 나왔다 · {matchup.attacker.name} +5
+            금지어 나왔다 · {matchup.attacker.name} +{INTERVIEW_POINT}
+          </Button>
+          <Button
+            tone="red"
+            className="text-xl"
+            onClick={() => award(true, "거짓말로 피했습니다", INTERVIEW_LIE_PENALTY)}
+          >
+            거짓말했다 · {matchup.defender.name} -{INTERVIEW_LIE_PENALTY}
           </Button>
           <Button tone="blue" className="text-xl" onClick={() => award(false, "끝까지 버텼습니다")}>
-            버텼다 · {matchup.defender.name} +5
+            버텼다 · {matchup.defender.name} +{INTERVIEW_POINT}
           </Button>
         </div>
       )}
@@ -2401,8 +2338,9 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
   const teams = game.teams;
   const totalQuestions = teams.length * 4;
 
-  // 두 글자 한 단어는 10초면 너무 쉬워서, 여러 단어를 묶어 한 문제가 최소 10글자가 되게 합니다.
-  const MIN_CHARS_BY_BLOCK = [10, 13, 16, 20];
+  // 단어가 화면에 떠 있으면 눈으로 읽어 내려오면 그만이라 너무 쉬웠어요.
+  // 이제 진행자만 보고 읽어 주므로, 외우기까지 해야 합니다. 그만큼 글자 수는 줄였습니다.
+  const MIN_CHARS_BY_BLOCK = [6, 8, 10, 12];
 
   const questions = useMemo(() => {
     const source = uniqueStrings([...SPEED_QUIZ_WORDS, ...SILENT_SHOUT_WORDS]).filter(
@@ -2439,12 +2377,14 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
   const [phase, setPhase] = useState<"ready" | "thinking" | "judged">("ready");
   const [scores, setScores] = useState<Record<string, number>>({});
   const [showAnswer, setShowAnswer] = useState(false);
+  // 진행자가 읽어 줄 동안에만 단어를 띄웁니다. 시작하면 다시 감춰서 눈으로 못 읽게 합니다.
+  const [showWords, setShowWords] = useState(false);
   const [stopped, setStopped] = useState(false);
   const done = stopped || index >= Math.min(totalQuestions, questions.length);
   const group = questions[index % Math.max(1, questions.length)] ?? [];
   const totalChars = group.reduce((sum, word) => sum + word.length, 0);
-  // 한 글자에 1초. 10글자면 10초, 22글자면 22초.
-  const limitSeconds = Math.max(10, totalChars);
+  // 듣고 외우는 시간이 필요해서 글자당 1.5초를 줍니다. 8글자면 12초, 12글자면 18초.
+  const limitSeconds = Math.max(10, Math.round(totalChars * 1.5));
   const block = Math.floor(index / teams.length);
   const team = teams[(index + block) % teams.length];
   const markShown = useShownHistory(REVERSE_HISTORY_KEY, NEW_ROUND_HISTORY_LIMIT);
@@ -2480,7 +2420,7 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
         type={type}
         title="거꾸로 말하기 결과"
         scores={scores}
-        note="단어를 전부 거꾸로 말하면 5점"
+        note="듣고 외운 단어를 전부 거꾸로 말하면 5점"
       />
     );
   }
@@ -2496,21 +2436,40 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
         done={evenTurns(index, teams.length)}
         onFinish={() => setStopped(true)}
       />
-      <div className="grid gap-2 rounded-3xl bg-[#FFE66D] p-5 sm:grid-cols-2">
-        {group.map((word, position) => (
-          <div key={`${word}-${position}`} className="rounded-xl bg-white/70 p-3 text-3xl font-black sm:text-4xl">
-            {position + 1}. {word}
-          </div>
-        ))}
-      </div>
+      {showWords || showAnswer ? (
+        <div className="grid gap-2 rounded-3xl bg-[#FFE66D] p-5 sm:grid-cols-2">
+          {group.map((word, position) => (
+            <div key={`${word}-${position}`} className="rounded-xl bg-white/70 p-3 text-3xl font-black sm:text-4xl">
+              {position + 1}. {word}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-3xl bg-[#FFE66D] p-8 text-4xl font-black sm:text-5xl">
+          🙈 {group.length}단어 {totalChars}글자
+        </div>
+      )}
       <p className="rounded-xl bg-[#F6FBFF] p-3 font-bold">
-        {group.length}개를 <b>순서대로 전부</b> 거꾸로 말하세요. 하나라도 틀리면 실패예요. {limitSeconds}초!
+        진행자가 <b>한 번만</b> 읽어 줍니다. 듣고 외운 뒤 {group.length}개를 <b>순서대로 전부</b> 거꾸로
+        말하세요. 하나라도 틀리면 실패예요. {limitSeconds}초!
       </p>
 
       {phase === "ready" && (
-        <Button tone="red" className="text-2xl" onClick={() => setPhase("thinking")}>
-          {limitSeconds}초 시작
-        </Button>
+        <>
+          <Button tone="yellow" onClick={() => setShowWords((value) => !value)}>
+            {showWords ? "가리기" : "진행자만 보기"}
+          </Button>
+          <Button
+            tone="red"
+            className="text-2xl"
+            onClick={() => {
+              setShowWords(false);
+              setPhase("thinking");
+            }}
+          >
+            읽어 줬어요 · {limitSeconds}초 시작
+          </Button>
+        </>
       )}
       {phase === "thinking" && <Countdown seconds={seconds} />}
 
@@ -2542,6 +2501,7 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
               setIndex((value) => value + 1);
               setPhase("ready");
               setShowAnswer(false);
+              setShowWords(false);
             }}
           >
             {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
@@ -3551,8 +3511,6 @@ export default function RoundPage() {
     body = <MemoryThiefRound game={game} type={roundType} />;
   } else if (roundType === "sequence_order") {
     body = <SequenceOrderRound game={game} type={roundType} />;
-  } else if (roundType === "hum_song") {
-    body = <HumSongRound game={game} type={roundType} />;
   } else if (roundType === "trap_interview") {
     body = <TrapInterviewRound game={game} type={roundType} />;
   } else if (roundType === "nunchi_allin") {

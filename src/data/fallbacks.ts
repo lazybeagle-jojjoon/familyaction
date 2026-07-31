@@ -19,7 +19,6 @@ export const FALLBACK_CONTENT: Record<RoundType, unknown> = {
   // 아래 네 라운드는 처음부터 로컬 데이터만 씁니다. (프롬프트가 없어 API를 부르지 않습니다)
   memory_thief: {},
   sequence_order: {},
-  hum_song: {},
   trap_interview: {},
   nunchi_allin: {},
   list_race: {},

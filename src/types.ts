@@ -6,7 +6,6 @@ export type RoundType =
   | "lie_detector"
   | "memory_thief"
   | "sequence_order"
-  | "hum_song"
   | "trap_interview"
   | "nunchi_allin"
   | "list_race"
