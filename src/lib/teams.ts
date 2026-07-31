@@ -1,4 +1,4 @@
-import type { Team, TeamColor } from "../types";
+import type { RoundInfo, Team, TeamColor } from "../types";
 
 // 색상만으로 팀을 구분하면 적록색약인 사람에게 빨강팀과 초록팀이 같아 보입니다.
 // 색 + 모양기호 + 이름을 항상 함께 씁니다.
@@ -26,6 +26,30 @@ export function teamMark(team: Team) {
 
 export function teamHex(team: Team) {
   return TEAM_COLOR_HEX[team.color];
+}
+
+/** "팀당 2명 이상 · 진행자 1명" 같은 한 줄 안내를 만듭니다. */
+export function staffingLabel(round: RoundInfo) {
+  const parts = [round.minPerTeam === 1 ? "팀당 1명부터" : `팀당 ${round.minPerTeam}명 이상`];
+  if (round.minTeams) parts.push(`${round.minTeams}팀`);
+  if (round.needsHost) parts.push("진행자 1명");
+  return parts.join(" · ");
+}
+
+/**
+ * 지금 짜인 팀으로 이 라운드가 되는지 봅니다.
+ * 팀원 이름을 안 적었으면 인원을 알 수 없으니 아무 말도 하지 않습니다.
+ */
+export function staffingWarning(round: RoundInfo, teams: Team[]) {
+  if (round.minTeams && teams.length < round.minTeams) {
+    return `${round.minTeams}팀일 때 제대로 돌아가는 라운드예요. 지금은 ${teams.length}팀입니다.`;
+  }
+  const short = teams.filter((team) => team.members.length > 0 && team.members.length < round.minPerTeam);
+  if (short.length) {
+    const names = short.map((team) => `${team.name}(${team.members.length}명)`).join(", ");
+    return `팀당 ${round.minPerTeam}명은 있어야 해요. ${names}이 모자랍니다.`;
+  }
+  return "";
 }
 
 /** 팀별로 문항 수가 똑같이 나뉘도록 총 문항 수를 보정합니다. */

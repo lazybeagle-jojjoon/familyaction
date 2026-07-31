@@ -29,7 +29,7 @@ import { correctConfetti, finaleConfetti } from "../lib/effects";
 import { loadPhotos } from "../lib/photoLibrary";
 import { rankAward } from "../lib/scoring";
 import { addRoundResult, loadGameState, saveGameState } from "../lib/storage";
-import { balancedQuestionCount, teamHex, teamMark } from "../lib/teams";
+import { balancedQuestionCount, staffingLabel, staffingWarning, teamHex, teamMark } from "../lib/teams";
 import { useScreenWakeLock } from "../lib/wakeLock";
 import type { GameState, RoundResult, RoundType, Team } from "../types";
 
@@ -559,6 +559,7 @@ function Countdown({ seconds, urgentAt = 5 }: { seconds: number; urgentAt?: numb
 
 function RoundHeader({ game, type }: { game: GameState; type: RoundType }) {
   const round = getRoundInfo(type);
+  const shortStaffed = round ? staffingWarning(round, game.teams) : "";
 
   return (
     <div className="grid gap-4">
@@ -588,8 +589,14 @@ function RoundHeader({ game, type }: { game: GameState; type: RoundType }) {
           <div>
             <h1 className="text-3xl font-black sm:text-5xl">{round?.title}</h1>
             <p className="mt-1 font-bold text-[#4A4A5E]">{round?.description}</p>
+            {round && <p className="mt-1 text-sm font-black text-[#1971C2]">👥 {staffingLabel(round)}</p>}
           </div>
         </div>
+        {shortStaffed && (
+          <p className="mt-3 rounded-xl bg-[#FFE3E3] p-3 text-sm font-black text-[#C92A2A]">
+            ⚠️ {shortStaffed}
+          </p>
+        )}
       </section>
       <Scoreboard game={game} compact />
     </div>

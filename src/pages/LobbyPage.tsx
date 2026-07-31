@@ -5,7 +5,7 @@ import MusicToggle from "../components/MusicToggle";
 import PageShell from "../components/PageShell";
 import Scoreboard from "../components/Scoreboard";
 import { getRoundInfo, ROUND_INFOS } from "../data/rounds";
-import { TEAM_MARK } from "../lib/teams";
+import { staffingLabel, staffingWarning, TEAM_MARK } from "../lib/teams";
 import { adjustTeamScore, lastRoundResult, loadGameState, saveGameState, undoLastRoundResult } from "../lib/storage";
 import type { GameState } from "../types";
 
@@ -46,6 +46,12 @@ export default function LobbyPage() {
     if (filter === "all") return ROUND_INFOS;
     return ROUND_INFOS.filter((round) => round.tag === filter);
   }, [filter, game]);
+
+  // 지금 팀 구성으로 안 되는 라운드를 카드에서 미리 알려 줍니다.
+  const shortStaffed = useMemo(() => {
+    if (!game) return {} as Record<string, string>;
+    return Object.fromEntries(ROUND_INFOS.map((round) => [round.type, staffingWarning(round, game.teams)]));
+  }, [game]);
 
   const undoTarget = game ? lastRoundResult(game) : null;
 
@@ -203,6 +209,10 @@ export default function LobbyPage() {
                   </div>
                   <h2 className="mt-4 text-2xl font-black">{round.title}</h2>
                   <p className="mt-2 min-h-[48px] text-sm font-bold text-[#4A4A5E]">{round.description}</p>
+                  <p className="mt-2 text-sm font-black text-[#1971C2]">👥 {staffingLabel(round)}</p>
+                  {shortStaffed[round.type] && (
+                    <p className="mt-1 text-xs font-black text-[#E03131]">⚠️ {shortStaffed[round.type]}</p>
+                  )}
                   <div className="mt-4 rounded-xl bg-[#F8F9FA] p-3 text-sm font-black">
                     {played ? (
                       <>
