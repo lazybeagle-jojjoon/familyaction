@@ -48,12 +48,20 @@ const CHARADES_POINT = 2;
  * 초성 퀴즈는 글자 수만큼 어려워집니다. 두 글자에 30초를 주면 너무 헐렁하고,
  * 다섯 글자를 같은 점수로 치면 손해예요. 그래서 글자 수를 그대로 점수로 쓰고
  * 제한 시간도 글자당 8초로 맞춥니다. (2자 = 16초 2점, 4자 = 32초 4점)
+ *
+ * 다만 5자에서 끊습니다. 풀에 여섯 글자가 하나 있는데(마인크래프트) 그대로 두면
+ * 그 문제만 48초짜리가 돼서 한 팀 차례가 늘어져요.
  */
 const CHOSUNG_SECONDS_PER_CHAR = 8;
+const CHOSUNG_MAX_SCALE = 5;
 
-// 금지어를 피하려고 없는 사실을 지어내면 게임이 성립하지 않아서 감점합니다.
+// 금지어를 피하려고 없는 사실을 지어내면 게임이 성립하지 않습니다.
+// 처음에는 수비팀 점수를 깎았는데, 0점 아래로 못 내려가게 막다 보니
+// 같은 거짓말이 첫 수비 때는 공짜고 나중에는 3점이 되는 이상한 규칙이 됐어요.
+// 지금은 공격팀에게 그만큼 더 줍니다. 벌어지는 점수 차이는 똑같이 8점이고,
+// 순서에 상관없이 대가가 같습니다.
 const INTERVIEW_POINT = 5;
-const INTERVIEW_LIE_PENALTY = 3;
+const INTERVIEW_LIE_BONUS = 3;
 function chosungLength(chosung: string) {
   return chosung.replace(/\s/g, "").length;
 }
@@ -966,10 +974,11 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
   }, []);
 
   const letters = chosungLength(question?.chosung ?? "");
-  const points = letters;
+  const scale = Math.min(letters, CHOSUNG_MAX_SCALE);
+  const points = scale;
   const seconds = useDeadlineCountdown(
     !done && !answered,
-    letters * CHOSUNG_SECONDS_PER_CHAR,
+    scale * CHOSUNG_SECONDS_PER_CHAR,
     timeUp,
     index,
   );
@@ -1017,7 +1026,7 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
       <Countdown seconds={seconds} />
       <div className="rounded-3xl bg-[#4ECDC4] p-8 text-7xl font-black sm:text-9xl">{question.chosung}</div>
       <p className="text-lg font-black text-[#4A4A5E]">
-        {letters}글자 · 맞히면 +{points}점 · {letters * CHOSUNG_SECONDS_PER_CHAR}초
+        {letters}글자 · 맞히면 +{points}점 · {scale * CHOSUNG_SECONDS_PER_CHAR}초
       </p>
       <div className="grid gap-3 sm:grid-cols-4">
         <Button
@@ -1873,24 +1882,14 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
   const judgedRef = useRef(false);
 
   const award = useCallback(
-    // penalty가 붙으면 진 쪽의 점수를 깎습니다. 다만 이 라운드에서 번 점수 아래로는
-    // 내려가지 않게 막아요. 총점이 마이너스가 되면 아이들이 바로 의욕을 잃더라고요.
-    (attackerWon: boolean, reason: string, penalty = 0) => {
+    (attackerWon: boolean, reason: string, bonus = 0) => {
       if (judgedRef.current) return;
       judgedRef.current = true;
 
       const winner = attackerWon ? matchup.attacker : matchup.defender;
-      const loser = attackerWon ? matchup.defender : matchup.attacker;
-      setScores((value) => {
-        const next = { ...value, [winner.id]: (value[winner.id] ?? 0) + INTERVIEW_POINT };
-        if (penalty) next[loser.id] = Math.max(0, (value[loser.id] ?? 0) - penalty);
-        return next;
-      });
-      setVerdict(
-        penalty
-          ? `${reason} — ${winner.name} +${INTERVIEW_POINT}, ${loser.name} -${penalty}`
-          : `${reason} — ${winner.name} +${INTERVIEW_POINT}`,
-      );
+      const gained = INTERVIEW_POINT + bonus;
+      setScores((value) => ({ ...value, [winner.id]: (value[winner.id] ?? 0) + gained }));
+      setVerdict(`${reason} — ${winner.name} +${gained}`);
       setPhase("judged");
       playCorrect();
       correctConfetti();
@@ -1909,7 +1908,7 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
         type={type}
         title="말하면 지는 인터뷰 결과"
         scores={scores}
-        note={`팀마다 공격 2회·방어 2회, 이긴 쪽 +${INTERVIEW_POINT} / 거짓말 -${INTERVIEW_LIE_PENALTY}`}
+        note={`팀마다 공격 2회·방어 2회, 이긴 쪽 +${INTERVIEW_POINT} / 거짓말 들통나면 공격팀 +${INTERVIEW_POINT + INTERVIEW_LIE_BONUS}`}
       />
     );
   }
@@ -1935,7 +1934,7 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
         <br />
         <span className="text-[#C92A2A]">
           단, 금지어를 피하려고 사실이 아닌 말을 하면 안 됩니다. (친구인데 모녀라고 하기 같은 것)
-          거짓말이 들통나면 공격팀 +{INTERVIEW_POINT}, 방어팀 -{INTERVIEW_LIE_PENALTY}입니다.
+          거짓말이 들통나면 공격팀이 {INTERVIEW_POINT + INTERVIEW_LIE_BONUS}점을 가져갑니다.
         </span>
       </p>
 
@@ -1979,9 +1978,9 @@ function TrapInterviewRound({ game, type }: { game: GameState; type: RoundType }
           <Button
             tone="red"
             className="text-xl"
-            onClick={() => award(true, "거짓말로 피했습니다", INTERVIEW_LIE_PENALTY)}
+            onClick={() => award(true, "거짓말로 피했습니다", INTERVIEW_LIE_BONUS)}
           >
-            거짓말했다 · {matchup.defender.name} -{INTERVIEW_LIE_PENALTY}
+            거짓말했다 · {matchup.attacker.name} +{INTERVIEW_POINT + INTERVIEW_LIE_BONUS}
           </Button>
           <Button tone="blue" className="text-xl" onClick={() => award(false, "끝까지 버텼습니다")}>
             버텼다 · {matchup.defender.name} +{INTERVIEW_POINT}

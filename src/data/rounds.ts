@@ -84,7 +84,7 @@ export const ROUND_INFOS: RoundInfo[] = [
     type: "trap_interview",
     icon: "🎙️",
     title: "말하면 지는 인터뷰",
-    description: "상대가 금지어를 말하게 유도하기. 거짓말은 감점",
+    description: "상대가 금지어를 말하게 유도하기. 거짓말은 상대에게 +8",
     tag: "말·몸",
   },
   {
