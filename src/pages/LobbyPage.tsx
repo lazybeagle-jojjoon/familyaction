@@ -13,7 +13,7 @@ export default function LobbyPage() {
   const navigate = useNavigate();
   const [game, setGame] = useState<GameState | null>(() => loadGameState());
   const [showRounds, setShowRounds] = useState(true);
-  const [filter, setFilter] = useState<"all" | "화면" | "말·몸" | "new">("all");
+  const [filter, setFilter] = useState<"all" | "화면" | "말·몸" | "new" | "fit">("all");
   const [editingScores, setEditingScores] = useState(false);
 
   useEffect(() => {
@@ -42,6 +42,8 @@ export default function LobbyPage() {
 
   const visibleRounds = useMemo(() => {
     if (!game) return [];
+    // 지금 팀 수와 인원으로 제대로 돌아가는 라운드만 남깁니다.
+    if (filter === "fit") return ROUND_INFOS.filter((round) => !staffingWarning(round, game.teams));
     if (filter === "new") return ROUND_INFOS.filter((round) => !(game.roundResults[round.type]?.length ?? 0));
     if (filter === "all") return ROUND_INFOS;
     return ROUND_INFOS.filter((round) => round.tag === filter);
@@ -52,6 +54,11 @@ export default function LobbyPage() {
     if (!game) return {} as Record<string, string>;
     return Object.fromEntries(ROUND_INFOS.map((round) => [round.type, staffingWarning(round, game.teams)]));
   }, [game]);
+
+  const fitCount = useMemo(
+    () => (game ? ROUND_INFOS.filter((round) => !staffingWarning(round, game.teams)).length : 0),
+    [game],
+  );
 
   const undoTarget = game ? lastRoundResult(game) : null;
 
@@ -163,6 +170,7 @@ export default function LobbyPage() {
             {(
               [
                 ["all", `전체 ${ROUND_INFOS.length}`],
+                ["fit", `👥 지금 인원으로 ${fitCount}`],
                 ["화면", "🖥 화면으로"],
                 ["말·몸", "🗣 말·몸으로"],
                 ["new", "아직 안 한 것"],

@@ -6,18 +6,24 @@ export const TEAM_COLOR_HEX: Record<TeamColor, string> = {
   red: "#FF6B6B",
   blue: "#4ECDC4",
   green: "#51CF66",
+  purple: "#B197FC",
+  orange: "#FFA94D",
 };
 
 export const TEAM_MARK: Record<TeamColor, string> = {
   red: "●",
   blue: "▲",
   green: "■",
+  purple: "★",
+  orange: "◆",
 };
 
 export const TEAM_COLOR_LABEL: Record<TeamColor, string> = {
   red: "빨강",
   blue: "파랑",
   green: "초록",
+  purple: "보라",
+  orange: "주황",
 };
 
 export function teamMark(team: Team) {
@@ -42,7 +48,7 @@ export function staffingLabel(round: RoundInfo) {
  */
 export function staffingWarning(round: RoundInfo, teams: Team[]) {
   if (round.minTeams && teams.length < round.minTeams) {
-    return `${round.minTeams}팀일 때 제대로 돌아가는 라운드예요. 지금은 ${teams.length}팀입니다.`;
+    return `${round.minTeams}팀은 되어야 점수가 갈립니다. 지금은 ${teams.length}팀이에요.`;
   }
   const short = teams.filter((team) => team.members.length > 0 && team.members.length < round.minPerTeam);
   if (short.length) {

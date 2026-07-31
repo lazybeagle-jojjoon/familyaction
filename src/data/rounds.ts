@@ -104,6 +104,7 @@ export const ROUND_INFOS: RoundInfo[] = [
     description: "다른 팀과 안 겹치는 답을 골라야 점수를 받아요",
     tag: "말·몸",
     minPerTeam: 1,
+    minTeams: 3,
   },
   {
     type: "list_race",

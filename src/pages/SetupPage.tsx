@@ -7,14 +7,15 @@ import { createGameState, loadApiKey, saveApiKey, saveGameState } from "../lib/s
 import { TEAM_COLOR_HEX as colorHex, TEAM_COLOR_LABEL as colorLabel, TEAM_MARK } from "../lib/teams";
 import type { Team, TeamColor } from "../types";
 
-const colors: TeamColor[] = ["red", "blue", "green"];
+const colors: TeamColor[] = ["red", "blue", "green", "purple", "orange"];
+const MAX_TEAMS = colors.length;
 
 export default function SetupPage() {
   const navigate = useNavigate();
   const [apiKey, setApiKey] = useState(loadApiKey());
-  const [teamCount, setTeamCount] = useState<2 | 3>(2);
-  const [teamNames, setTeamNames] = useState(["빨강팀", "파랑팀", "초록팀"]);
-  const [members, setMembers] = useState(["", "", ""]);
+  const [teamCount, setTeamCount] = useState(3);
+  const [teamNames, setTeamNames] = useState(["빨강팀", "파랑팀", "초록팀", "보라팀", "주황팀"]);
+  const [members, setMembers] = useState(["", "", "", "", ""]);
   const [showHelp, setShowHelp] = useState(false);
   const [error, setError] = useState("");
   const [apiTest, setApiTest] = useState<{
@@ -150,8 +151,8 @@ export default function SetupPage() {
 
           <fieldset className="grid gap-3">
             <legend className="text-lg font-black">팀 수</legend>
-            <div className="grid grid-cols-2 gap-3">
-              {[2, 3].map((count) => (
+            <div className="grid grid-cols-4 gap-3">
+              {Array.from({ length: MAX_TEAMS - 1 }, (_, i) => i + 2).map((count) => (
                 <label
                   key={count}
                   className={`flex min-h-[60px] cursor-pointer items-center justify-center rounded-xl border-3 border-[#171721] text-xl font-black ${
@@ -162,7 +163,7 @@ export default function SetupPage() {
                     type="radio"
                     className="sr-only"
                     checked={teamCount === count}
-                    onChange={() => setTeamCount(count as 2 | 3)}
+                    onChange={() => setTeamCount(count)}
                   />
                   {count}팀
                 </label>
@@ -170,7 +171,7 @@ export default function SetupPage() {
             </div>
           </fieldset>
 
-          <div className="grid gap-4 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {teams.map((team, index) => (
               <section key={team.id} className="rounded-2xl border-3 border-[#171721] bg-white p-4 shadow-pop">
                 <div className="mb-4 flex items-center justify-between">

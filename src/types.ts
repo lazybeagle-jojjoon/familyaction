@@ -19,7 +19,7 @@ export type RoundType =
   | "charades"
   | "pool_finale";
 
-export type TeamColor = "red" | "blue" | "green";
+export type TeamColor = "red" | "blue" | "green" | "purple" | "orange";
 
 export interface Team {
   id: string;
