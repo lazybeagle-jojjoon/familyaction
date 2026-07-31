@@ -75,6 +75,9 @@ const CHARADES_POINT = 2;
 const CHOSUNG_SECONDS_PER_CHAR = 8;
 const CHOSUNG_MAX_SCALE = 5;
 
+// 순서 맞추기는 시간이 없으면 팀이 무한정 만지작거려서 차례가 늘어졌습니다.
+const SEQUENCE_SECONDS = 60;
+
 // 금지어를 피하려고 없는 사실을 지어내면 게임이 성립하지 않습니다.
 // 처음에는 수비팀 점수를 깎았는데, 0점 아래로 못 내려가게 막다 보니
 // 같은 거짓말이 첫 수비 때는 공짜고 나중에는 3점이 되는 이상한 규칙이 됐어요.
@@ -1006,7 +1009,7 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
   const scale = Math.min(letters, CHOSUNG_MAX_SCALE);
   const points = scale;
   const seconds = useDeadlineCountdown(
-    !done && !answered,
+    !done && !answered && !revealed,
     scale * CHOSUNG_SECONDS_PER_CHAR,
     timeUp,
     index,
@@ -1084,9 +1087,9 @@ function ChosungRound({ game, content, type }: { game: GameState; content: unkno
         <Button
           tone="yellow"
           onClick={() => {
-            // 답을 본 뒤에 점수를 줄 수 있으면 판정이 무너져서 채점을 함께 잠급니다.
+            // 진행자가 답을 모를 수도 있어서, 정답을 본 뒤에도 채점할 수 있게 둡니다.
+            // 대신 타이머는 멈춥니다.
             setRevealed(true);
-            setAnswered(true);
           }}
         >
           정답 보기
@@ -1657,47 +1660,46 @@ function MemoryThiefRound({ game, type }: { game: GameState; type: RoundType }) 
         </div>
       )}
 
+      {/*
+        진행자도 무엇이 사라졌는지 기억하지 못합니다. 그래서 먼저 정답을 확인하고,
+        그다음에 팀이 말한 답과 맞춰 보고 점수를 줍니다.
+      */}
       {phase === "recall" && (
         <>
           <p className="rounded-xl bg-[#FFF3BF] p-4 text-xl font-black">무엇이 사라졌을까요?</p>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <Button
-              tone="green"
-              disabled={scored}
-              onClick={() => {
-                setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + MEMORY_POINT }));
-                setScored(true);
-                setPhase("revealed");
-                playCorrect();
-                correctConfetti();
-              }}
-            >
-              맞혔어요 +5
-            </Button>
-            <Button
-              tone="red"
-              disabled={scored}
-              onClick={() => {
-                setScored(true);
-                setPhase("revealed");
-                playWrong();
-              }}
-            >
-              못 맞혔어요
-            </Button>
-            <Button tone="yellow" onClick={() => setPhase("revealed")}>
-              정답 보기
-            </Button>
-          </div>
+          <p className="font-bold text-[#4A4A5E]">팀이 답을 말하면 정답을 확인하세요.</p>
+          <Button tone="yellow" className="text-2xl" onClick={() => setPhase("revealed")}>
+            정답 보기
+          </Button>
         </>
       )}
 
       {phase === "revealed" && (
         <>
           <p className="rounded-xl bg-[#FFF3BF] p-4 text-2xl font-black">사라진 것: {question.missing}</p>
+          {!scored ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Button
+                tone="green"
+                className="text-2xl"
+                onClick={() => {
+                  setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + MEMORY_POINT }));
+                  setScored(true);
+                  playCorrect();
+                  correctConfetti();
+                }}
+              >
+                맞혔어요 +{MEMORY_POINT}
+              </Button>
+              <Button tone="red" className="text-2xl" onClick={() => { setScored(true); playWrong(); }}>
+                못 맞혔어요
+              </Button>
+            </div>
+          ) : (
           <Button tone="blue" className="text-2xl" onClick={next}>
             {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
           </Button>
+          )}
         </>
       )}
     </section>
@@ -1752,6 +1754,7 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
     setArrangement(next);
     setPicked(null);
     setLocked(false);
+    lockedRef.current = false;
   }, [card, done]);
 
   const swap = (position: number) => {
@@ -1783,16 +1786,28 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
     return 0;
   }, [arrangement, card]);
 
-  const lock = () => {
+  // 타이머 콜백은 만들어질 당시의 gained를 붙들고 있어서, 최신 배열을 ref로 읽습니다.
+  const gainedRef = useRef(0);
+  useEffect(() => {
+    gainedRef.current = gained;
+  }, [gained]);
+
+  const lockedRef = useRef(false);
+  const lock = useCallback(() => {
+    if (lockedRef.current) return;
+    lockedRef.current = true;
     setLocked(true);
-    setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + gained }));
-    if (gained > 0) {
+    setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + gainedRef.current }));
+    if (gainedRef.current > 0) {
       playCorrect();
       correctConfetti();
     } else {
       playWrong();
     }
-  };
+  }, [team.id]);
+
+  // 시간이 다 되면 그 시점의 배열 그대로 채점합니다.
+  const seconds = useDeadlineCountdown(!locked && !done, SEQUENCE_SECONDS, lock, index);
 
   if (done) {
     return (
@@ -1818,7 +1833,8 @@ function SequenceOrderRound({ game, type }: { game: GameState; type: RoundType }
         done={evenTurns(index, teams.length)}
         onFinish={() => setStopped(true)}
       />
-      <p className="font-bold text-[#4A4A5E]">두 칸을 차례로 눌러 자리를 바꾸세요.</p>
+      <p className="font-bold text-[#4A4A5E]">두 칸을 차례로 눌러 자리를 바꾸세요. {SEQUENCE_SECONDS}초!</p>
+      {!locked && <Countdown seconds={seconds} />}
 
       <div className="grid gap-3">
         {arrangement.map((item, position) => {
@@ -2409,6 +2425,7 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
   const [showAnswer, setShowAnswer] = useState(false);
   // 진행자가 읽어 줄 동안에만 단어를 띄웁니다. 시작하면 다시 감춰서 눈으로 못 읽게 합니다.
   const [showWords, setShowWords] = useState(false);
+  const [judged, setJudged] = useState(false);
   const [stopped, setStopped] = useState(false);
   const done = stopped || index >= Math.min(totalQuestions, questions.length);
   const group = questions[index % Math.max(1, questions.length)] ?? [];
@@ -2425,13 +2442,18 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
     for (const word of group) markShown(word);
   }, [done, group, markShown]);
 
-  // 시간이 끝나도 정답은 아직 감춥니다. 정답을 본 뒤에 성공 처리하면 판정이 무너져요.
-  const timeUp = useCallback(() => setPhase("judged"), []);
+  // 진행자가 "반침나"가 맞는지 암산으로 확인하긴 어렵습니다.
+  // 그래서 시간이 끝나면 뒤집은 답을 먼저 띄우고, 그걸 보면서 판정하게 합니다.
+  const timeUp = useCallback(() => {
+    setShowAnswer(true);
+    setPhase("judged");
+  }, []);
   const seconds = useDeadlineCountdown(phase === "thinking", limitSeconds, timeUp, index);
 
   const judge = (success: boolean) => {
     if (scoredRef.current) return;
     scoredRef.current = true;
+    setJudged(true);
     if (success) {
       setScores((value) => ({ ...value, [team.id]: (value[team.id] ?? 0) + REVERSE_POINT }));
       playCorrect();
@@ -2503,40 +2525,43 @@ function ReverseTalkRound({ game, type }: { game: GameState; type: RoundType }) 
       )}
       {phase === "thinking" && <Countdown seconds={seconds} />}
 
-      {phase !== "ready" && (
+      {/* 진행자가 "반침나"를 암산으로 확인하긴 어려워서, 정답을 먼저 띄우고 그걸 보면서 판정합니다. */}
+      {showAnswer && (
+        <div className="grid gap-2 rounded-xl bg-[#FFF3BF] p-4 text-left sm:grid-cols-2">
+          {group.map((word, position) => (
+            <p key={`answer-${word}-${position}`} className="text-xl font-black">
+              {word} → <span className="text-[#C92A2A]">{reverseHangul(word)}</span>
+            </p>
+          ))}
+        </div>
+      )}
+
+      {phase !== "ready" && !judged && (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Button tone="green" className="text-2xl" disabled={scoredRef.current} onClick={() => judge(true)}>
-            맞혔어요 +5
+          <Button tone="green" className="text-2xl" onClick={() => judge(true)}>
+            맞혔어요 +{REVERSE_POINT}
           </Button>
-          <Button tone="red" className="text-2xl" disabled={scoredRef.current} onClick={() => judge(false)}>
+          <Button tone="red" className="text-2xl" onClick={() => judge(false)}>
             틀렸어요
           </Button>
         </div>
       )}
 
-      {showAnswer && (
-        <>
-          <div className="grid gap-2 rounded-xl bg-[#FFF3BF] p-4 text-left sm:grid-cols-2">
-            {group.map((word, position) => (
-              <p key={`answer-${word}-${position}`} className="text-xl font-black">
-                {word} → <span className="text-[#C92A2A]">{reverseHangul(word)}</span>
-              </p>
-            ))}
-          </div>
-          <Button
-            tone="blue"
-            className="text-2xl"
-            onClick={() => {
-              scoredRef.current = false;
-              setIndex((value) => value + 1);
-              setPhase("ready");
-              setShowAnswer(false);
-              setShowWords(false);
-            }}
-          >
-            {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
-          </Button>
-        </>
+      {judged && (
+        <Button
+          tone="blue"
+          className="text-2xl"
+          onClick={() => {
+            scoredRef.current = false;
+            setJudged(false);
+            setIndex((value) => value + 1);
+            setPhase("ready");
+            setShowAnswer(false);
+            setShowWords(false);
+          }}
+        >
+          {index + 1 >= totalQuestions ? "결과 보기" : "다음 문제"}
+        </Button>
       )}
     </section>
   );
