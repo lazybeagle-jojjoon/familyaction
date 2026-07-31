@@ -15,8 +15,10 @@ type ModelCandidate = {
   options: Record<string, unknown>;
 };
 
+// 앞에 있는 모델부터 시도하고, 실패하면 다음으로 넘어갑니다.
+// 여기서 하는 일은 '단어 목록 만들기' 수준이라 Sonnet으로 충분합니다.
+// Opus를 1순위로 두면 출력 토큰 값이 2.5배라 한 판 돌릴 때마다 요금만 더 나갔어요.
 const MODEL_CANDIDATES: ModelCandidate[] = [
-  { id: "claude-opus-5", options: { thinking: { type: "disabled" }, output_config: { effort: "low" } } },
   { id: "claude-sonnet-5", options: { thinking: { type: "disabled" }, output_config: { effort: "low" } } },
   { id: "claude-haiku-4-5", options: {} },
 ];
